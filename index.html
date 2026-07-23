@@ -126,6 +126,8 @@ RateEngine.withinRange = function(minutes, startMin, endMin) {
   return minutes >= startMin || minutes < endMin;
 };
 
+// First matching card wins by array order; the UI does not currently prevent
+// users from creating overlapping rate cards, so insertion order is precedence.
 RateEngine.findMatchingRateCard = function(rateCards, entryDate) {
   var day = entryDate.getDay();
   var minutes = entryDate.getHours() * 60 + entryDate.getMinutes();
