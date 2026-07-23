@@ -146,6 +146,18 @@ RateEngine.lookupLadderPrice = function(card, durationMin) {
   }
   return sorted.length ? sorted[sorted.length - 1].price : 0;
 };
+
+RateEngine.checkEarlyBird = function(earlyBird, entryDate, exitDate) {
+  if (!earlyBird || !earlyBird.enabled) return null;
+  var entryDay = entryDate.getDay();
+  if (!earlyBird.days[entryDay]) return null;
+  var entryMin = entryDate.getHours() * 60 + entryDate.getMinutes();
+  if (!RateEngine.withinRange(entryMin, earlyBird.entryStartMin, earlyBird.entryEndMin)) return null;
+  var exitMin = exitDate.getHours() * 60 + exitDate.getMinutes();
+  var exitOk = earlyBird.exitCondition === 'before' ? exitMin <= earlyBird.exitMin : exitMin >= earlyBird.exitMin;
+  if (!exitOk) return null;
+  return earlyBird.price;
+};
 </script>
 
 <script>
@@ -256,6 +268,40 @@ window.__engineTestCases.push(function(t){
 
   var emptyLadderCard = { graceMin: 15, ladder: [] };
   t.assertEqual(RateEngine.lookupLadderPrice(emptyLadderCard, 100), 0, 'lookupLadderPrice: empty ladder returns 0');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  var eb = {
+    enabled: true,
+    days: [true,true,true,true,true,true,true],
+    entryStartMin: 360, entryEndMin: 540,
+    exitCondition: 'after',
+    exitMin: 960,
+    price: 5
+  };
+  var entry1 = new Date(2026, 6, 1, 7, 0, 0);
+  var exit1 = new Date(2026, 6, 1, 17, 0, 0);
+  t.assertEqual(RateEngine.checkEarlyBird(eb, entry1, exit1), 5, 'checkEarlyBird: entry in window + exit after qualifies');
+
+  var exit2 = new Date(2026, 6, 1, 11, 0, 0);
+  t.assertEqual(RateEngine.checkEarlyBird(eb, entry1, exit2), null, 'checkEarlyBird: exit condition not met returns null');
+
+  var entry3 = new Date(2026, 6, 1, 10, 0, 0);
+  t.assertEqual(RateEngine.checkEarlyBird(eb, entry3, exit1), null, 'checkEarlyBird: entry outside window returns null');
+
+  var ebOff = Object.assign({}, eb, { enabled: false });
+  t.assertEqual(RateEngine.checkEarlyBird(ebOff, entry1, exit1), null, 'checkEarlyBird: disabled rule always returns null');
+
+  var ebWeekdayOnly = Object.assign({}, eb, { days: [false,true,true,true,true,true,false] });
+  var sat = new Date(2026, 6, 4, 7, 0, 0);
+  var satExit = new Date(2026, 6, 4, 17, 0, 0);
+  t.assertEqual(RateEngine.checkEarlyBird(ebWeekdayOnly, sat, satExit), null, 'checkEarlyBird: day not valid returns null');
+
+  var ebBefore = Object.assign({}, eb, { exitCondition: 'before', exitMin: 540 });
+  var earlyExit = new Date(2026, 6, 1, 8, 30, 0);
+  t.assertEqual(RateEngine.checkEarlyBird(ebBefore, entry1, earlyExit), 5, 'checkEarlyBird: exit before condition qualifies');
 });
 </script>
 
