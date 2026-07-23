@@ -163,6 +163,42 @@ RateEngine.checkEarlyBird = function(earlyBird, entryDate, exitDate) {
   if (!exitOk) return null;
   return earlyBird.price;
 };
+
+RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
+  var entryDate = RateEngine.parseVisitTimestamp(row['Visit Start Date'], row['Visit Start At']);
+  var exitDate = RateEngine.parseVisitTimestamp(row['Visit Exit  Event Date'], row['Visit Exit  Event At']);
+  var durationMin = RateEngine.computeDurationMinutes(entryDate, exitDate);
+  var actualPrice = RateEngine.parseMoney(row['Price Amt']);
+  var isSpecialEvent = String(row['Is Special Event Rate']).toLowerCase() === 'true';
+
+  if (isSpecialEvent) return { excluded: 'special_event', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
+  if (durationMin > cutoffHours * 60) return { excluded: 'over_cutoff', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
+
+  var ebPrice = RateEngine.checkEarlyBird(earlyBird, entryDate, exitDate);
+  var staticPrice, bracketName;
+  if (ebPrice !== null) {
+    staticPrice = ebPrice;
+    bracketName = 'Early Bird';
+  } else {
+    var card = RateEngine.findMatchingRateCard(rateCards, entryDate);
+    if (!card) return { excluded: 'no_matching_rate_card', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
+    staticPrice = RateEngine.lookupLadderPrice(card, durationMin);
+    bracketName = card.name || 'Unnamed';
+  }
+
+  var coverageType = row['Visit Coverage Type'];
+  return {
+    excluded: null,
+    bracketName: bracketName,
+    durationMin: durationMin,
+    staticPrice: staticPrice,
+    actualPrice: actualPrice,
+    validationAmt: RateEngine.parseMoney(row['Validation Amt']),
+    gpv: RateEngine.parseMoney(row['GPV Amt']),
+    coverageType: coverageType,
+    isValidated: coverageType !== 'Transient (No Coverage)'
+  };
+};
 </script>
 
 <script>
@@ -307,6 +343,52 @@ window.__engineTestCases.push(function(t){
   var ebBefore = Object.assign({}, eb, { exitCondition: 'before', exitMin: 540 });
   var earlyExit = new Date(2026, 6, 1, 8, 30, 0);
   t.assertEqual(RateEngine.checkEarlyBird(ebBefore, entry1, earlyExit), 5, 'checkEarlyBird: exit before condition qualifies');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  var rateCards = [
+    { id: 'day', name: 'Weekday Day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960, graceMin: 15,
+      ladder: [{thresholdMin:60,price:5},{thresholdMin:120,price:10},{thresholdMin:180,price:15},{thresholdMin:720,price:20},{thresholdMin:1440,price:25}] }
+  ];
+  var noEb = { enabled: false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 };
+
+  function row(overrides) {
+    return Object.assign({
+      'Visit Start Date': '7/1/2026', 'Visit Start At': '10:00:00 AM',
+      'Visit Exit  Event Date': '7/1/2026', 'Visit Exit  Event At': '11:30:00 AM',
+      'Is Special Event Rate': 'False',
+      'Price Amt': '$13.78', 'Validation Amt': '', 'GPV Amt': '$13.78',
+      'Visit Coverage Type': 'Transient (No Coverage)'
+    }, overrides);
+  }
+
+  var v1 = RateEngine.processVisit(row({}), rateCards, noEb, 24);
+  t.assertEqual(v1.excluded, null, 'processVisit: normal visit not excluded');
+  t.assertEqual(v1.staticPrice, 10, 'processVisit: static price from duration ladder');
+  t.assertEqual(v1.actualPrice, 13.78, 'processVisit: actual price from Price Amt');
+  t.assertEqual(v1.bracketName, 'Weekday Day', 'processVisit: bracket name from matched card');
+  t.assertEqual(v1.isValidated, false, 'processVisit: Transient is not validated');
+
+  var v2 = RateEngine.processVisit(row({'Is Special Event Rate': 'True'}), rateCards, noEb, 24);
+  t.assertEqual(v2.excluded, 'special_event', 'processVisit: special event visit excluded');
+
+  var v3 = RateEngine.processVisit(row({'Visit Exit  Event Date': '7/3/2026', 'Visit Exit  Event At': '11:30:00 AM'}), rateCards, noEb, 24);
+  t.assertEqual(v3.excluded, 'over_cutoff', 'processVisit: duration beyond cutoff excluded');
+
+  var v4 = RateEngine.processVisit(row({'Visit Start At': '02:00:00 AM', 'Visit Exit  Event At': '02:30:00 AM'}), rateCards, noEb, 24);
+  t.assertEqual(v4.excluded, 'no_matching_rate_card', 'processVisit: no matching card excluded');
+
+  var v5 = RateEngine.processVisit(row({'Visit Coverage Type': 'Validation (Partially Covered)', 'Validation Amt': '$5.00', 'GPV Amt': '$8.78'}), rateCards, noEb, 24);
+  t.assertEqual(v5.isValidated, true, 'processVisit: Partially Covered counts as validated');
+  t.assertEqual(v5.validationAmt, 5, 'processVisit: validation amount parsed');
+  t.assertEqual(v5.gpv, 8.78, 'processVisit: GPV parsed');
+
+  var eb = { enabled: true, days:[false,true,true,true,true,true,false], entryStartMin:360, entryEndMin:540, exitCondition:'after', exitMin:960, price: 3 };
+  var v6 = RateEngine.processVisit(row({'Visit Start At': '07:00:00 AM', 'Visit Exit  Event At': '05:00:00 PM'}), rateCards, eb, 24);
+  t.assertEqual(v6.staticPrice, 3, 'processVisit: Early Bird overrides duration ladder');
+  t.assertEqual(v6.bracketName, 'Early Bird', 'processVisit: Early Bird sets its own bracket name');
 });
 </script>
 
