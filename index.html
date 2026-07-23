@@ -1,11 +1,12 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Parking Rate Comparison</title>
 <style>
 :root{
   --brand:#5F59FF;
+  /* r1-r7: brand ramp, reserved for later heatmap/chart use, unused for now */
   --r1:#E0DFFF;--r2:#ABA8FF;--r3:#5F59FF;--r4:#4842DF;--r5:#2D23A7;--r6:#07036C;--r7:#02003B;
   --teal:#09D4CC;--orange:#FF7449;
   --bg:#F7F7FF;--surface:#FFFFFF;--line:#EAEAEA;--text:#02003B;--muted:#6b6a8a;
@@ -41,6 +42,7 @@ body.night .switch::after{left:21px}
 <div id="setupPage" class="page active"><h2>Setup</h2></div>
 <div id="comparePage" class="page"><h2>Compare</h2></div>
 
+<!-- === Shell UI wiring (nav tabs, night toggle) === -->
 <script>
 document.getElementById('nightToggle').addEventListener('click', function(){
   document.body.classList.toggle('night');
@@ -55,10 +57,12 @@ document.querySelectorAll('#tabNav button').forEach(function(btn){
 });
 </script>
 
+<!-- === RateEngine (pure functions, no DOM access) — Engine tasks append here === -->
 <script>
 window.RateEngine = {};
 </script>
 
+<!-- === Self-test harness (?test=1 only) — must stay last; UI state/render tasks insert above this block === -->
 <script>
 (function(){
   if (location.search.indexOf('test=1') === -1) return;
