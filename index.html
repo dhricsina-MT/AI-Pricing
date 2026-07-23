@@ -71,6 +71,7 @@ RateEngine.parseVisitTimestamp = function(dateStr, timeStr) {
   var dateParts = dateStr.split('/').map(Number);
   var month = dateParts[0], day = dateParts[1], year = dateParts[2];
   var match = timeStr.trim().match(/^(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) throw new Error('parseVisitTimestamp: unrecognized time string "' + timeStr + '"');
   var hh = Number(match[1]), mm = Number(match[2]), ss = Number(match[3]);
   var ap = match[4].toUpperCase();
   if (ap === 'PM' && hh !== 12) hh += 12;
