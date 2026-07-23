@@ -204,6 +204,53 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
     isValidated: coverageType.indexOf('Validation') === 0
   };
 };
+
+RateEngine.aggregateByBracket = function(processedVisits) {
+  var brackets = {};
+  var excluded = {
+    special_event: { count: 0, actualTotal: 0 },
+    over_cutoff: { count: 0, actualTotal: 0 },
+    no_matching_rate_card: { count: 0, actualTotal: 0 }
+  };
+
+  processedVisits.forEach(function(v){
+    if (v.excluded) {
+      excluded[v.excluded].count++;
+      excluded[v.excluded].actualTotal += v.actualPrice;
+      return;
+    }
+    if (!brackets[v.bracketName]) {
+      brackets[v.bracketName] = {
+        name: v.bracketName, count: 0, staticTotal: 0, actualTotal: 0, validationTotal: 0,
+        normal: { count: 0, staticTotal: 0, actualTotal: 0 },
+        validation: { count: 0, staticTotal: 0, actualTotal: 0, validationTotal: 0 }
+      };
+    }
+    var b = brackets[v.bracketName];
+    b.count++;
+    b.staticTotal += v.staticPrice;
+    b.actualTotal += v.actualPrice;
+    b.validationTotal += v.validationAmt;
+    var sub = v.isValidated ? b.validation : b.normal;
+    sub.count++;
+    sub.staticTotal += v.staticPrice;
+    sub.actualTotal += v.actualPrice;
+    if (v.isValidated) sub.validationTotal += v.validationAmt;
+  });
+
+  var bracketList = Object.keys(brackets).map(function(name){
+    var b = brackets[name];
+    b.delta = b.actualTotal - b.staticTotal;
+    return b;
+  });
+
+  var totals = bracketList.reduce(function(acc, b){
+    return { staticTotal: acc.staticTotal + b.staticTotal, actualTotal: acc.actualTotal + b.actualTotal };
+  }, { staticTotal: 0, actualTotal: 0 });
+  totals.delta = totals.actualTotal - totals.staticTotal;
+
+  return { brackets: bracketList, totals: totals, excluded: excluded };
+};
 </script>
 
 <script>
@@ -397,6 +444,40 @@ window.__engineTestCases.push(function(t){
 
   var v7 = RateEngine.processVisit(row({'Visit Coverage Type': 'Some Unrecognized Value'}), rateCards, noEb, 24);
   t.assertEqual(v7.isValidated, false, 'processVisit: unrecognized coverage type fails safe as not validated');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  var visits = [
+    { excluded: null, bracketName: 'Day', staticPrice: 10, actualPrice: 12, validationAmt: 0, isValidated: false },
+    { excluded: null, bracketName: 'Day', staticPrice: 10, actualPrice: 11, validationAmt: 5, isValidated: true },
+    { excluded: null, bracketName: 'Night', staticPrice: 5, actualPrice: 6, validationAmt: 0, isValidated: false },
+    { excluded: 'special_event', actualPrice: 20 },
+    { excluded: 'over_cutoff', actualPrice: 50 },
+    { excluded: 'no_matching_rate_card', actualPrice: 7 }
+  ];
+  var result = RateEngine.aggregateByBracket(visits);
+
+  var day = result.brackets.find(function(b){ return b.name === 'Day'; });
+  t.assertEqual(day.count, 2, 'aggregateByBracket: Day bracket has 2 visits');
+  t.assertEqual(day.staticTotal, 20, 'aggregateByBracket: Day static total');
+  t.assertEqual(day.actualTotal, 23, 'aggregateByBracket: Day actual total');
+  t.assertEqual(day.delta, 3, 'aggregateByBracket: Day delta = actual - static');
+  t.assertEqual(day.normal.count, 1, 'aggregateByBracket: Day normal sub-count');
+  t.assertEqual(day.validation.count, 1, 'aggregateByBracket: Day validation sub-count');
+  t.assertEqual(day.validation.validationTotal, 5, 'aggregateByBracket: Day validation sub-total');
+
+  var night = result.brackets.find(function(b){ return b.name === 'Night'; });
+  t.assertEqual(night.count, 1, 'aggregateByBracket: Night bracket has 1 visit');
+
+  t.assertEqual(result.totals.staticTotal, 25, 'aggregateByBracket: overall static total excludes excluded visits');
+  t.assertEqual(result.totals.actualTotal, 29, 'aggregateByBracket: overall actual total excludes excluded visits');
+
+  t.assertEqual(result.excluded.special_event.count, 1, 'aggregateByBracket: special_event excluded count');
+  t.assertEqual(result.excluded.special_event.actualTotal, 20, 'aggregateByBracket: special_event excluded actual total');
+  t.assertEqual(result.excluded.over_cutoff.count, 1, 'aggregateByBracket: over_cutoff excluded count');
+  t.assertEqual(result.excluded.no_matching_rate_card.count, 1, 'aggregateByBracket: no_matching_rate_card excluded count');
 });
 </script>
 
