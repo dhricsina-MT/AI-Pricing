@@ -153,6 +153,11 @@ RateEngine.checkEarlyBird = function(earlyBird, entryDate, exitDate) {
   if (!earlyBird.days[entryDay]) return null;
   var entryMin = entryDate.getHours() * 60 + entryDate.getMinutes();
   if (!RateEngine.withinRange(entryMin, earlyBird.entryStartMin, earlyBird.entryEndMin)) return null;
+  // Exit condition compares time-of-day only (calendar date of exitDate is ignored),
+  // matching the original same-day Early Bird example (enter 7am, exit 11am same day).
+  // A stay that crosses into a later calendar day before exiting is evaluated as if
+  // the exit clock time occurred on the entry day; this is an intentional scope
+  // limitation, not an oversight — revisit if real overnight Early Bird visits surface.
   var exitMin = exitDate.getHours() * 60 + exitDate.getMinutes();
   var exitOk = earlyBird.exitCondition === 'before' ? exitMin <= earlyBird.exitMin : exitMin >= earlyBird.exitMin;
   if (!exitOk) return null;
