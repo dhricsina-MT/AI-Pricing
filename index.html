@@ -27,6 +27,19 @@ nav button.active{background:var(--brand);color:#fff}
 .switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
 body.night .switch{background:var(--brand)}
 body.night .switch::after{left:21px}
+.sub{color:var(--muted);margin:0 0 16px;font-size:13px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.card .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
+.ctl{display:flex;flex-direction:column;gap:4px}
+.ctl label{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700}
+.ctl input[type=text],.ctl input[type=number],.ctl input[type=time]{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:13px}
+.dayBoxes{display:flex;gap:6px}
+.dayBoxes label{display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--muted)}
+.ladderTable{display:flex;gap:8px;flex-wrap:wrap}
+.ladderCol{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--bg)}
+.btnPrimary{background:var(--brand);color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600}
+.btnGhost{background:none;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;color:var(--muted);font-size:12px}
+.btnDanger{background:none;border:1px solid var(--orange);color:var(--orange);border-radius:8px;padding:4px 8px;cursor:pointer;font-size:12px}
 </style>
 </head>
 <body>
@@ -39,7 +52,12 @@ body.night .switch::after{left:21px}
   <button data-tab="setup" class="active">Setup</button>
   <button data-tab="compare">Compare</button>
 </nav>
-<div id="setupPage" class="page active"><h2>Setup</h2></div>
+<div id="setupPage" class="page active">
+  <h2>Setup</h2>
+  <p class="sub">Build your static rate table, then drop in a visit export below.</p>
+  <div id="rateCardList"></div>
+  <button id="addCardBtn" class="btnPrimary">+ Add Rate Card</button>
+</div>
 <div id="comparePage" class="page"><h2>Compare</h2></div>
 
 <!-- === Shell UI wiring (nav tabs, night toggle) === -->
@@ -501,6 +519,188 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(trapBracket.count, 1, 'aggregateByBracket: "__proto__" bracket name aggregates normally, not polluted');
   t.assertEqual(({}).count, undefined, 'aggregateByBracket: Object.prototype was not polluted by "__proto__" bracket name');
   t.assertEqual(trapResult.excluded.some_future_reason.count, 1, 'aggregateByBracket: unrecognized exclusion reason falls back instead of throwing');
+});
+</script>
+
+<script>
+var state = {
+  rateCards: [],
+  earlyBird: { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 },
+  cutoffHours: 24,
+  ignoreValidations: false,
+  visits: [],
+  compareResult: null,
+  unrolledBrackets: new Set()
+};
+var nextCardId = 1;
+var DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun display order, values index into card.days (0=Sun..6=Sat, matches Date.getDay())
+var DAY_LABELS = { 1:'Mon', 2:'Tue', 3:'Wed', 4:'Thu', 5:'Fri', 6:'Sat', 0:'Sun' };
+
+function newRateCard() {
+  return { id: 'rc' + (nextCardId++), name: '', days: [false,false,false,false,false,false,false], startMin: 0, endMin: 1440, graceMin: 15, ladder: [] };
+}
+
+function renderRateCards() {
+  var list = document.getElementById('rateCardList');
+  list.innerHTML = '';
+  state.rateCards.forEach(function(card){
+    list.appendChild(renderRateCard(card));
+  });
+}
+
+function renderRateCard(card) {
+  var div = document.createElement('div');
+  div.className = 'card';
+
+  var nameRow = document.createElement('div');
+  nameRow.className = 'row';
+  nameRow.innerHTML =
+    '<div class="ctl"><label>Name</label><input type="text" value="' + card.name + '" data-field="name"></div>' +
+    '<div class="ctl"><label>Start</label><input type="time" value="' + RateEngine.minutesToTimeString(card.startMin) + '" data-field="startMin"></div>' +
+    '<div class="ctl"><label>End</label><input type="time" value="' + RateEngine.minutesToTimeString(card.endMin) + '" data-field="endMin"></div>' +
+    '<div class="ctl"><label>Grace (min)</label><input type="number" value="' + card.graceMin + '" data-field="graceMin"></div>' +
+    '<button class="btnDanger" data-action="delete">Delete</button>';
+  div.appendChild(nameRow);
+
+  var dayRow = document.createElement('div');
+  dayRow.className = 'row';
+  var dayBoxes = document.createElement('div');
+  dayBoxes.className = 'dayBoxes';
+  DAY_ORDER.forEach(function(dayIdx){
+    var lbl = document.createElement('label');
+    lbl.innerHTML = '<input type="checkbox" data-day="' + dayIdx + '" ' + (card.days[dayIdx] ? 'checked' : '') + '>' + DAY_LABELS[dayIdx];
+    dayBoxes.appendChild(lbl);
+  });
+  dayRow.appendChild(dayBoxes);
+  ['All days', 'Weekday (Mon-Fri)', 'Weekend (Sat-Sun)'].forEach(function(preset){
+    var btn = document.createElement('button');
+    btn.className = 'btnGhost';
+    btn.textContent = preset;
+    btn.dataset.preset = preset;
+    dayRow.appendChild(btn);
+  });
+  div.appendChild(dayRow);
+
+  var ladderRow = document.createElement('div');
+  ladderRow.className = 'row';
+  var ladderTable = document.createElement('div');
+  ladderTable.className = 'ladderTable';
+  card.ladder.forEach(function(tier, idx){
+    var col = document.createElement('div');
+    col.className = 'ladderCol';
+    col.innerHTML =
+      '<label>Threshold (min)</label><input type="number" value="' + tier.thresholdMin + '" data-ladder-idx="' + idx + '" data-ladder-field="thresholdMin">' +
+      '<label>Price</label><input type="number" value="' + tier.price + '" data-ladder-idx="' + idx + '" data-ladder-field="price">' +
+      '<button class="btnDanger" data-ladder-remove="' + idx + '">x</button>';
+    ladderTable.appendChild(col);
+  });
+  ladderRow.appendChild(ladderTable);
+  var addLadderBtn = document.createElement('button');
+  addLadderBtn.className = 'btnGhost';
+  addLadderBtn.textContent = '+ Add Tier';
+  addLadderBtn.dataset.action = 'addTier';
+  ladderRow.appendChild(addLadderBtn);
+  div.appendChild(ladderRow);
+
+  div.addEventListener('input', function(e){
+    var field = e.target.dataset.field;
+    if (field === 'startMin' || field === 'endMin') {
+      card[field] = RateEngine.timeStringToMinutes(e.target.value);
+    } else if (field === 'graceMin') {
+      card[field] = Number(e.target.value);
+    } else if (field) {
+      card[field] = e.target.value;
+    }
+    if (e.target.dataset.day !== undefined) {
+      card.days[Number(e.target.dataset.day)] = e.target.checked;
+    }
+    if (e.target.dataset.ladderIdx !== undefined) {
+      var idx = Number(e.target.dataset.ladderIdx);
+      var lf = e.target.dataset.ladderField;
+      card.ladder[idx][lf] = Number(e.target.value);
+    }
+  });
+
+  div.addEventListener('click', function(e){
+    if (e.target.dataset.action === 'delete') {
+      state.rateCards = state.rateCards.filter(function(c){ return c.id !== card.id; });
+      renderRateCards();
+    } else if (e.target.dataset.action === 'addTier') {
+      card.ladder.push({ thresholdMin: 60, price: 0 });
+      renderRateCards();
+    } else if (e.target.dataset.ladderRemove !== undefined) {
+      card.ladder.splice(Number(e.target.dataset.ladderRemove), 1);
+      renderRateCards();
+    } else if (e.target.dataset.preset) {
+      if (e.target.dataset.preset === 'All days') card.days = [true,true,true,true,true,true,true];
+      if (e.target.dataset.preset === 'Weekday (Mon-Fri)') card.days = [false,true,true,true,true,true,false];
+      if (e.target.dataset.preset === 'Weekend (Sat-Sun)') card.days = [true,false,false,false,false,false,true];
+      renderRateCards();
+    }
+  });
+
+  return div;
+}
+
+document.getElementById('addCardBtn').addEventListener('click', function(){
+  state.rateCards.push(newRateCard());
+  renderRateCards();
+});
+</script>
+
+<script>
+window.__engineTestCases = window.__engineTestCases || [];
+window.__engineTestCases.push(function(t){
+  state.rateCards = [];
+  renderRateCards();
+
+  document.getElementById('addCardBtn').click();
+  document.getElementById('addCardBtn').click();
+  t.assertEqual(state.rateCards.length, 2, 'UI: Add Rate Card button adds a card each click');
+
+  function cardDiv(idx) { return document.querySelectorAll('#rateCardList .card')[idx]; }
+  function findBtn(div, matchFn) { return Array.prototype.slice.call(div.querySelectorAll('button')).find(matchFn); }
+
+  var nameInput = cardDiv(0).querySelector('input[data-field="name"]');
+  nameInput.value = 'Test Card';
+  nameInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.rateCards[0].name, 'Test Card', 'UI: editing name input updates state');
+
+  var startInput = cardDiv(0).querySelector('input[data-field="startMin"]');
+  startInput.value = '04:00';
+  startInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.rateCards[0].startMin, 240, 'UI: editing start time input updates state in minutes');
+
+  var wedCheckbox = cardDiv(0).querySelector('input[data-day="3"]');
+  wedCheckbox.checked = true;
+  wedCheckbox.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.rateCards[0].days[3], true, 'UI: checking a day checkbox updates state');
+
+  var weekendBtn = findBtn(cardDiv(0), function(b){ return b.dataset.preset === 'Weekend (Sat-Sun)'; });
+  weekendBtn.click();
+  t.assertEqual(state.rateCards[0].days, [true,false,false,false,false,false,true], 'UI: Weekend preset sets only Sat/Sun');
+
+  var addTierBtn = findBtn(cardDiv(0), function(b){ return b.dataset.action === 'addTier'; });
+  addTierBtn.click();
+  t.assertEqual(state.rateCards[0].ladder.length, 1, 'UI: Add Tier adds a ladder entry');
+
+  var thresholdInput = cardDiv(0).querySelector('input[data-ladder-field="thresholdMin"]');
+  thresholdInput.value = '120';
+  thresholdInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.rateCards[0].ladder[0].thresholdMin, 120, 'UI: editing ladder threshold updates state');
+
+  var priceInput = cardDiv(0).querySelector('input[data-ladder-field="price"]');
+  priceInput.value = '15';
+  priceInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.rateCards[0].ladder[0].price, 15, 'UI: editing ladder price updates state');
+
+  var deleteBtn = findBtn(cardDiv(1), function(b){ return b.dataset.action === 'delete'; });
+  deleteBtn.click();
+  t.assertEqual(state.rateCards.length, 1, 'UI: Delete removes a card');
+
+  var removeTierBtn = cardDiv(0).querySelector('[data-ladder-remove]');
+  removeTierBtn.click();
+  t.assertEqual(state.rateCards[0].ladder.length, 0, 'UI: removing a ladder tier works');
 });
 </script>
 
