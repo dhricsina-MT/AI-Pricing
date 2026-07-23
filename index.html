@@ -174,6 +174,8 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
   if (isSpecialEvent) return { excluded: 'special_event', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
   if (durationMin > cutoffHours * 60) return { excluded: 'over_cutoff', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
 
+  // Early Bird takes precedence over the matching rate card's duration ladder
+  // whenever it qualifies — a visit never gets both, EB fully overrides.
   var ebPrice = RateEngine.checkEarlyBird(earlyBird, entryDate, exitDate);
   var staticPrice, bracketName;
   if (ebPrice !== null) {
@@ -196,7 +198,10 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
     validationAmt: RateEngine.parseMoney(row['Validation Amt']),
     gpv: RateEngine.parseMoney(row['GPV Amt']),
     coverageType: coverageType,
-    isValidated: coverageType !== 'Transient (No Coverage)'
+    // Allowlist rather than negating the one known non-validated value, so an
+    // unrecognized/blank coverage type fails safe (uncounted) instead of
+    // silently inflating validated totals.
+    isValidated: coverageType.indexOf('Validation') === 0
   };
 };
 </script>
@@ -389,6 +394,9 @@ window.__engineTestCases.push(function(t){
   var v6 = RateEngine.processVisit(row({'Visit Start At': '07:00:00 AM', 'Visit Exit  Event At': '05:00:00 PM'}), rateCards, eb, 24);
   t.assertEqual(v6.staticPrice, 3, 'processVisit: Early Bird overrides duration ladder');
   t.assertEqual(v6.bracketName, 'Early Bird', 'processVisit: Early Bird sets its own bracket name');
+
+  var v7 = RateEngine.processVisit(row({'Visit Coverage Type': 'Some Unrecognized Value'}), rateCards, noEb, 24);
+  t.assertEqual(v7.isValidated, false, 'processVisit: unrecognized coverage type fails safe as not validated');
 });
 </script>
 
