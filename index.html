@@ -107,13 +107,13 @@ RateEngine.decodeVisitFileBuffer = function(arrayBuffer) {
 
 RateEngine.parseVisitFile = function(arrayBuffer) {
   var text = RateEngine.decodeVisitFileBuffer(arrayBuffer);
-  var delimiter = text.indexOf('\t') !== -1 ? '\t' : ',';
   var lines = text.split(/\r\n|\n/).filter(function(l){ return l.length > 0; });
+  var delimiter = lines[0].indexOf('\t') !== -1 ? '\t' : ',';
   var header = lines[0].split(delimiter).map(function(h){ return h.trim(); });
   var rows = [];
   for (var i = 1; i < lines.length; i++) {
     var cols = lines[i].split(delimiter);
-    if (!/^\d+$/.test((cols[0] || '').trim())) continue; // skip "Grand Total" summary row
+    if ((cols[0] || '').trim().toLowerCase() === 'grand total') continue; // skip summary row
     var row = {};
     header.forEach(function(h, idx){ row[h] = (cols[idx] || '').trim(); });
     rows.push(row);
@@ -170,6 +170,13 @@ window.__engineTestCases.push(function(t){
   var csvRows = RateEngine.parseVisitFile(csvBuf);
   t.assertEqual(csvRows.length, 2, 'parseVisitFile: falls back to comma-delimited UTF-8');
   t.assertEqual(csvRows[0]['A'], '1', 'parseVisitFile: comma fallback maps columns');
+
+  // Regression: real exports format "Sort by" with comma thousands separators (e.g. "17,064")
+  // once past 999 rows — the Grand Total filter must not mistake that for the summary row.
+  var bigSortByBuf = t.utf16leEncode(header + totalsRow + "17,064\t290900000\t$9.99");
+  var bigSortByRows = RateEngine.parseVisitFile(bigSortByBuf);
+  t.assertEqual(bigSortByRows.length, 1, 'parseVisitFile: keeps comma-formatted "Sort by" >= 1000');
+  t.assertEqual(bigSortByRows[0]['Sort by'], '17,064', 'parseVisitFile: comma-formatted Sort by value preserved');
 });
 </script>
 
