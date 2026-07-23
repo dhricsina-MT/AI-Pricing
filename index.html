@@ -120,6 +120,21 @@ RateEngine.parseVisitFile = function(arrayBuffer) {
   }
   return rows;
 };
+
+RateEngine.withinRange = function(minutes, startMin, endMin) {
+  if (startMin < endMin) return minutes >= startMin && minutes < endMin;
+  return minutes >= startMin || minutes < endMin;
+};
+
+RateEngine.findMatchingRateCard = function(rateCards, entryDate) {
+  var day = entryDate.getDay();
+  var minutes = entryDate.getHours() * 60 + entryDate.getMinutes();
+  for (var i = 0; i < rateCards.length; i++) {
+    var card = rateCards[i];
+    if (card.days[day] && RateEngine.withinRange(minutes, card.startMin, card.endMin)) return card;
+  }
+  return null;
+};
 </script>
 
 <script>
@@ -177,6 +192,34 @@ window.__engineTestCases.push(function(t){
   var bigSortByRows = RateEngine.parseVisitFile(bigSortByBuf);
   t.assertEqual(bigSortByRows.length, 1, 'parseVisitFile: keeps comma-formatted "Sort by" >= 1000');
   t.assertEqual(bigSortByRows[0]['Sort by'], '17,064', 'parseVisitFile: comma-formatted Sort by value preserved');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  t.assertEqual(RateEngine.withinRange(500, 240, 960), true, 'withinRange: normal range, inside');
+  t.assertEqual(RateEngine.withinRange(100, 240, 960), false, 'withinRange: normal range, outside');
+  t.assertEqual(RateEngine.withinRange(959, 240, 960), true, 'withinRange: end is exclusive, just under');
+  t.assertEqual(RateEngine.withinRange(960, 240, 960), false, 'withinRange: end is exclusive, at boundary');
+  t.assertEqual(RateEngine.withinRange(23 * 60, 960, 240), true, 'withinRange: overnight wrap, in evening part');
+  t.assertEqual(RateEngine.withinRange(2 * 60, 960, 240), true, 'withinRange: overnight wrap, in early-morning part');
+  t.assertEqual(RateEngine.withinRange(500, 960, 240), false, 'withinRange: overnight wrap, outside both parts');
+
+  var cards = [
+    { id: 'weekday_day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960, graceMin: 15, ladder: [] },
+    { id: 'weekend_all', days: [true,false,false,false,false,false,true], startMin: 0, endMin: 1440, graceMin: 15, ladder: [] }
+  ];
+  var wed10am = new Date(2026, 6, 1, 10, 0, 0);
+  var match = RateEngine.findMatchingRateCard(cards, wed10am);
+  t.assertEqual(match && match.id, 'weekday_day', 'findMatchingRateCard: matches weekday day card');
+
+  var sat11pm = new Date(2026, 6, 4, 23, 0, 0);
+  var match2 = RateEngine.findMatchingRateCard(cards, sat11pm);
+  t.assertEqual(match2 && match2.id, 'weekend_all', 'findMatchingRateCard: matches weekend all-day card');
+
+  var wed2am = new Date(2026, 6, 1, 2, 0, 0);
+  var match3 = RateEngine.findMatchingRateCard(cards, wed2am);
+  t.assertEqual(match3, null, 'findMatchingRateCard: returns null when no card covers the time');
 });
 </script>
 
