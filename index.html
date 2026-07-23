@@ -137,6 +137,15 @@ RateEngine.findMatchingRateCard = function(rateCards, entryDate) {
   }
   return null;
 };
+
+RateEngine.lookupLadderPrice = function(card, durationMin) {
+  if (durationMin <= card.graceMin) return 0;
+  var sorted = card.ladder.slice().sort(function(a, b){ return a.thresholdMin - b.thresholdMin; });
+  for (var i = 0; i < sorted.length; i++) {
+    if (durationMin <= sorted[i].thresholdMin) return sorted[i].price;
+  }
+  return sorted.length ? sorted[sorted.length - 1].price : 0;
+};
 </script>
 
 <script>
@@ -222,6 +231,31 @@ window.__engineTestCases.push(function(t){
   var wed2am = new Date(2026, 6, 1, 2, 0, 0);
   var match3 = RateEngine.findMatchingRateCard(cards, wed2am);
   t.assertEqual(match3, null, 'findMatchingRateCard: returns null when no card covers the time');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  var card = {
+    graceMin: 15,
+    ladder: [
+      { thresholdMin: 60, price: 5 },
+      { thresholdMin: 120, price: 10 },
+      { thresholdMin: 180, price: 15 },
+      { thresholdMin: 720, price: 20 },
+      { thresholdMin: 1440, price: 25 }
+    ]
+  };
+  t.assertEqual(RateEngine.lookupLadderPrice(card, 10), 0, 'lookupLadderPrice: within grace is free');
+  t.assertEqual(RateEngine.lookupLadderPrice(card, 15), 0, 'lookupLadderPrice: exactly at grace is free');
+  t.assertEqual(RateEngine.lookupLadderPrice(card, 16), 5, 'lookupLadderPrice: just past grace uses first tier');
+  t.assertEqual(RateEngine.lookupLadderPrice(card, 60), 5, 'lookupLadderPrice: exactly at first tier threshold');
+  t.assertEqual(RateEngine.lookupLadderPrice(card, 90), 10, 'lookupLadderPrice: between tiers rounds up to next tier');
+  t.assertEqual(RateEngine.lookupLadderPrice(card, 1440), 25, 'lookupLadderPrice: exactly at last tier');
+  t.assertEqual(RateEngine.lookupLadderPrice(card, 3000), 25, 'lookupLadderPrice: beyond last tier uses ceiling price');
+
+  var emptyLadderCard = { graceMin: 15, ladder: [] };
+  t.assertEqual(RateEngine.lookupLadderPrice(emptyLadderCard, 100), 0, 'lookupLadderPrice: empty ladder returns 0');
 });
 </script>
 
