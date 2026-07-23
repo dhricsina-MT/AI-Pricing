@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Parking Rate Comparison</title>
+<style>
+:root{
+  --brand:#5F59FF;
+  --r1:#E0DFFF;--r2:#ABA8FF;--r3:#5F59FF;--r4:#4842DF;--r5:#2D23A7;--r6:#07036C;--r7:#02003B;
+  --teal:#09D4CC;--orange:#FF7449;
+  --bg:#F7F7FF;--surface:#FFFFFF;--line:#EAEAEA;--text:#02003B;--muted:#6b6a8a;
+}
+body.night{--bg:#0a0a0c;--surface:#161719;--line:#2d2d33;--text:#F5F5FA;--muted:#a6a4bd;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0}
+.logo{font-weight:700;color:var(--brand)}
+.spacer{flex:1}
+nav{display:flex;gap:4px}
+nav button{padding:8px 16px;border:none;background:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;color:var(--text)}
+nav button.active{background:var(--brand);color:#fff}
+.page{max-width:1200px;margin:0 auto;padding:20px;display:none}
+.page.active{display:block}
+.toggle{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;cursor:pointer}
+.switch{width:42px;height:24px;border-radius:12px;background:var(--line);position:relative;transition:.2s}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+body.night .switch{background:var(--brand)}
+body.night .switch::after{left:21px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">&#9679; Rate Compare</div>
+  <div class="spacer"></div>
+  <div class="toggle" id="nightToggle"><span>Night</span><span class="switch"></span></div>
+</header>
+<nav id="tabNav">
+  <button data-tab="setup" class="active">Setup</button>
+  <button data-tab="compare">Compare</button>
+</nav>
+<div id="setupPage" class="page active"><h2>Setup</h2></div>
+<div id="comparePage" class="page"><h2>Compare</h2></div>
+
+<script>
+document.getElementById('nightToggle').addEventListener('click', function(){
+  document.body.classList.toggle('night');
+});
+document.querySelectorAll('#tabNav button').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#tabNav button').forEach(function(b){b.classList.remove('active')});
+    document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab + 'Page').classList.add('active');
+  });
+});
+</script>
+
+<script>
+window.RateEngine = {};
+</script>
+
+<script>
+(function(){
+  if (location.search.indexOf('test=1') === -1) return;
+  var results = [];
+  function assertEqual(actual, expected, label) {
+    var pass = JSON.stringify(actual) === JSON.stringify(expected);
+    results.push({label: label, pass: pass, actual: actual, expected: expected});
+  }
+  function utf16leEncode(str) {
+    var buf = new ArrayBuffer(2 + str.length * 2);
+    var view = new DataView(buf);
+    view.setUint8(0, 0xFF); view.setUint8(1, 0xFE);
+    for (var i = 0; i < str.length; i++) view.setUint16(2 + i * 2, str.charCodeAt(i), true);
+    return buf;
+  }
+  window.__runEngineTests = function() {
+    results = [];
+    (window.__engineTestCases || []).forEach(function(fn){ fn({assertEqual: assertEqual, utf16leEncode: utf16leEncode}); });
+    render();
+  };
+  function render(){
+    var el = document.getElementById('test-results');
+    if (!el) return;
+    var passCount = results.filter(function(r){return r.pass}).length;
+    el.innerHTML = '<h3>' + passCount + '/' + results.length + ' passed</h3>' + results.map(function(r){
+      return '<div style="color:' + (r.pass ? 'green' : 'red') + '">' + (r.pass ? 'PASS' : 'FAIL') + ': ' + r.label +
+        (r.pass ? '' : ' (expected ' + JSON.stringify(r.expected) + ', got ' + JSON.stringify(r.actual) + ')') + '</div>';
+    }).join('');
+    console.log(passCount + '/' + results.length + ' passed');
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.body.insertAdjacentHTML('afterbegin', '<div id="test-results" style="padding:12px;font-family:monospace"></div>');
+    window.__runEngineTests();
+  });
+})();
+</script>
+</body>
+</html>
