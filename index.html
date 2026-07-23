@@ -93,6 +93,33 @@ RateEngine.minutesToTimeString = function(min) {
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
   return pad(h) + ':' + pad(m);
 };
+
+RateEngine.decodeVisitFileBuffer = function(arrayBuffer) {
+  var bytes = new Uint8Array(arrayBuffer);
+  if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+    return new TextDecoder('utf-16le').decode(arrayBuffer.slice(2));
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+    return new TextDecoder('utf-8').decode(arrayBuffer.slice(3));
+  }
+  return new TextDecoder('utf-8').decode(arrayBuffer);
+};
+
+RateEngine.parseVisitFile = function(arrayBuffer) {
+  var text = RateEngine.decodeVisitFileBuffer(arrayBuffer);
+  var delimiter = text.indexOf('\t') !== -1 ? '\t' : ',';
+  var lines = text.split(/\r\n|\n/).filter(function(l){ return l.length > 0; });
+  var header = lines[0].split(delimiter).map(function(h){ return h.trim(); });
+  var rows = [];
+  for (var i = 1; i < lines.length; i++) {
+    var cols = lines[i].split(delimiter);
+    if (!/^\d+$/.test((cols[0] || '').trim())) continue; // skip "Grand Total" summary row
+    var row = {};
+    header.forEach(function(h, idx){ row[h] = (cols[idx] || '').trim(); });
+    rows.push(row);
+  }
+  return rows;
+};
 </script>
 
 <script>
@@ -118,6 +145,31 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(RateEngine.timeStringToMinutes('16:00'), 960, 'timeStringToMinutes: 16:00 -> 960');
   t.assertEqual(RateEngine.minutesToTimeString(960), '16:00', 'minutesToTimeString: 960 -> 16:00');
   t.assertEqual(RateEngine.minutesToTimeString(65), '01:05', 'minutesToTimeString: pads single digits');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  var header = "Sort by\tTransaction Id\tPrice Amt\n";
+  var totalsRow = "Grand Total\tTotal\t$100.00\n";
+  var dataRow1 = "1\t290956872\t$13.78\n";
+  var dataRow2 = "2\t290953654\t$5.74";
+  var utf16Buf = t.utf16leEncode(header + totalsRow + dataRow1 + dataRow2);
+
+  var decoded = RateEngine.decodeVisitFileBuffer(utf16Buf);
+  t.assertEqual(decoded.indexOf('Transaction Id') > -1, true, 'decodeVisitFileBuffer: UTF-16LE BOM decodes correctly');
+
+  var rows = RateEngine.parseVisitFile(utf16Buf);
+  t.assertEqual(rows.length, 2, 'parseVisitFile: skips header and Grand Total row, keeps 2 data rows');
+  t.assertEqual(rows[0]['Transaction Id'], '290956872', 'parseVisitFile: maps columns by trimmed header name');
+  t.assertEqual(rows[0]['Price Amt'], '$13.78', 'parseVisitFile: preserves raw cell text');
+  t.assertEqual(rows[1]['Sort by'], '2', 'parseVisitFile: second data row present');
+
+  var csvText = "A,B\n1,2\n3,4";
+  var csvBuf = new TextEncoder().encode(csvText).buffer;
+  var csvRows = RateEngine.parseVisitFile(csvBuf);
+  t.assertEqual(csvRows.length, 2, 'parseVisitFile: falls back to comma-delimited UTF-8');
+  t.assertEqual(csvRows[0]['A'], '1', 'parseVisitFile: comma fallback maps columns');
 });
 </script>
 
