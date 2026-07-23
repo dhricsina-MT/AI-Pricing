@@ -60,6 +60,64 @@ document.querySelectorAll('#tabNav button').forEach(function(btn){
 <!-- === RateEngine (pure functions, no DOM access) — Engine tasks append here === -->
 <script>
 window.RateEngine = {};
+
+RateEngine.parseMoney = function(str) {
+  if (!str) return 0;
+  var n = Number(String(str).replace(/[$,]/g, ''));
+  return isNaN(n) ? 0 : n;
+};
+
+RateEngine.parseVisitTimestamp = function(dateStr, timeStr) {
+  var dateParts = dateStr.split('/').map(Number);
+  var month = dateParts[0], day = dateParts[1], year = dateParts[2];
+  var match = timeStr.trim().match(/^(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
+  var hh = Number(match[1]), mm = Number(match[2]), ss = Number(match[3]);
+  var ap = match[4].toUpperCase();
+  if (ap === 'PM' && hh !== 12) hh += 12;
+  if (ap === 'AM' && hh === 12) hh = 0;
+  return new Date(year, month - 1, day, hh, mm, ss);
+};
+
+RateEngine.computeDurationMinutes = function(entryDate, exitDate) {
+  return Math.round((exitDate.getTime() - entryDate.getTime()) / 60000);
+};
+
+RateEngine.timeStringToMinutes = function(hhmm) {
+  var parts = hhmm.split(':').map(Number);
+  return parts[0] * 60 + parts[1];
+};
+
+RateEngine.minutesToTimeString = function(min) {
+  var h = Math.floor(min / 60), m = min % 60;
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  return pad(h) + ':' + pad(m);
+};
+</script>
+
+<script>
+window.__engineTestCases = window.__engineTestCases || [];
+window.__engineTestCases.push(function(t){
+  t.assertEqual(RateEngine.parseMoney('$13.78'), 13.78, 'parseMoney: dollar sign + decimal');
+  t.assertEqual(RateEngine.parseMoney('$1,234.50'), 1234.50, 'parseMoney: comma thousands');
+  t.assertEqual(RateEngine.parseMoney(''), 0, 'parseMoney: empty string is 0');
+  t.assertEqual(RateEngine.parseMoney(undefined), 0, 'parseMoney: undefined is 0');
+
+  var entry = RateEngine.parseVisitTimestamp('6/30/2026', '11:40:48 PM');
+  t.assertEqual([entry.getFullYear(), entry.getMonth(), entry.getDate(), entry.getHours(), entry.getMinutes(), entry.getSeconds()],
+    [2026, 5, 30, 23, 40, 48], 'parseVisitTimestamp: PM rollover to 23:40:48');
+  var midnight = RateEngine.parseVisitTimestamp('7/1/2026', '12:00:00 AM');
+  t.assertEqual([midnight.getHours(), midnight.getMinutes()], [0, 0], 'parseVisitTimestamp: 12:00 AM is hour 0');
+  var noon = RateEngine.parseVisitTimestamp('7/1/2026', '12:00:00 PM');
+  t.assertEqual([noon.getHours(), noon.getMinutes()], [12, 0], 'parseVisitTimestamp: 12:00 PM is hour 12');
+
+  var d1 = RateEngine.parseVisitTimestamp('6/30/2026', '11:40:48 PM');
+  var d2 = RateEngine.parseVisitTimestamp('7/1/2026', '08:40:56 AM');
+  t.assertEqual(RateEngine.computeDurationMinutes(d1, d2), 540, 'computeDurationMinutes: crosses midnight, 540 min');
+
+  t.assertEqual(RateEngine.timeStringToMinutes('16:00'), 960, 'timeStringToMinutes: 16:00 -> 960');
+  t.assertEqual(RateEngine.minutesToTimeString(960), '16:00', 'minutesToTimeString: 960 -> 16:00');
+  t.assertEqual(RateEngine.minutesToTimeString(65), '01:05', 'minutesToTimeString: pads single digits');
+});
 </script>
 
 <!-- === Self-test harness (?test=1 only) — must stay last; UI state/render tasks insert above this block === -->
