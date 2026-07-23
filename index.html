@@ -188,7 +188,7 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
     bracketName = card.name || 'Unnamed';
   }
 
-  var coverageType = row['Visit Coverage Type'];
+  var coverageType = row['Visit Coverage Type'] || '';
   return {
     excluded: null,
     bracketName: bracketName,
@@ -206,7 +206,11 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
 };
 
 RateEngine.aggregateByBracket = function(processedVisits) {
-  var brackets = {};
+  // Object.create(null) avoids a prototype chain entirely, so a rate card
+  // literally named "__proto__" or "constructor" can't pollute Object.prototype
+  // or resolve as a false-positive "already exists" hit — bracketName comes
+  // straight from user-entered rate card names in the Setup tab UI.
+  var brackets = Object.create(null);
   var excluded = {
     special_event: { count: 0, actualTotal: 0 },
     over_cutoff: { count: 0, actualTotal: 0 },
@@ -215,6 +219,9 @@ RateEngine.aggregateByBracket = function(processedVisits) {
 
   processedVisits.forEach(function(v){
     if (v.excluded) {
+      // Defensive fallback: if processVisit ever emits a reason code not
+      // pre-listed above, don't throw — start counting it from zero.
+      if (!excluded[v.excluded]) excluded[v.excluded] = { count: 0, actualTotal: 0 };
       excluded[v.excluded].count++;
       excluded[v.excluded].actualTotal += v.actualPrice;
       return;
@@ -444,6 +451,11 @@ window.__engineTestCases.push(function(t){
 
   var v7 = RateEngine.processVisit(row({'Visit Coverage Type': 'Some Unrecognized Value'}), rateCards, noEb, 24);
   t.assertEqual(v7.isValidated, false, 'processVisit: unrecognized coverage type fails safe as not validated');
+
+  var rowMissingCoverage = row({});
+  delete rowMissingCoverage['Visit Coverage Type'];
+  var v8 = RateEngine.processVisit(rowMissingCoverage, rateCards, noEb, 24);
+  t.assertEqual(v8.isValidated, false, 'processVisit: missing Visit Coverage Type column does not throw, defaults to not validated');
 });
 </script>
 
@@ -478,6 +490,17 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(result.excluded.special_event.actualTotal, 20, 'aggregateByBracket: special_event excluded actual total');
   t.assertEqual(result.excluded.over_cutoff.count, 1, 'aggregateByBracket: over_cutoff excluded count');
   t.assertEqual(result.excluded.no_matching_rate_card.count, 1, 'aggregateByBracket: no_matching_rate_card excluded count');
+
+  // Regression: a rate card named "__proto__" must not pollute Object.prototype or crash.
+  var trapVisits = [
+    { excluded: null, bracketName: '__proto__', staticPrice: 10, actualPrice: 12, validationAmt: 0, isValidated: false },
+    { excluded: 'some_future_reason', actualPrice: 9 }
+  ];
+  var trapResult = RateEngine.aggregateByBracket(trapVisits);
+  var trapBracket = trapResult.brackets.find(function(b){ return b.name === '__proto__'; });
+  t.assertEqual(trapBracket.count, 1, 'aggregateByBracket: "__proto__" bracket name aggregates normally, not polluted');
+  t.assertEqual(({}).count, undefined, 'aggregateByBracket: Object.prototype was not polluted by "__proto__" bracket name');
+  t.assertEqual(trapResult.excluded.some_future_reason.count, 1, 'aggregateByBracket: unrecognized exclusion reason falls back instead of throwing');
 });
 </script>
 
