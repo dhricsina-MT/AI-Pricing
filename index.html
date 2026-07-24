@@ -261,6 +261,7 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
   return {
     excluded: null,
     bracketName: bracketName,
+    entryDate: entryDate,
     durationMin: durationMin,
     staticPrice: staticPrice,
     actualPrice: actualPrice,
@@ -271,6 +272,15 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
     // unrecognized/blank coverage type fails safe (uncounted) instead of
     // silently inflating validated totals.
     isValidated: coverageType.indexOf('Validation') === 0
+  };
+};
+
+RateEngine.computeDeltaPercents = function(staticTotal, actualTotal) {
+  var delta = actualTotal - staticTotal;
+  return {
+    delta: delta,
+    percentOfStatic: staticTotal !== 0 ? (delta / staticTotal) * 100 : null,
+    percentOfActual: actualTotal !== 0 ? (delta / actualTotal) * 100 : null
   };
 };
 
@@ -299,7 +309,8 @@ RateEngine.aggregateByBracket = function(processedVisits) {
       brackets[v.bracketName] = {
         name: v.bracketName, count: 0, staticTotal: 0, actualTotal: 0, validationTotal: 0,
         normal: { count: 0, staticTotal: 0, actualTotal: 0 },
-        validation: { count: 0, staticTotal: 0, actualTotal: 0, validationTotal: 0 }
+        validation: { count: 0, staticTotal: 0, actualTotal: 0, validationTotal: 0 },
+        days: {} // keyed by 0-6 (Date.getDay()), built lazily below
       };
     }
     var b = brackets[v.bracketName];
@@ -312,18 +323,46 @@ RateEngine.aggregateByBracket = function(processedVisits) {
     sub.staticTotal += v.staticPrice;
     sub.actualTotal += v.actualPrice;
     if (v.isValidated) sub.validationTotal += v.validationAmt;
+
+    var dayIdx = v.entryDate.getDay();
+    if (!b.days[dayIdx]) {
+      b.days[dayIdx] = {
+        count: 0, staticTotal: 0, actualTotal: 0, validationTotal: 0,
+        normal: { count: 0, staticTotal: 0, actualTotal: 0 },
+        validation: { count: 0, staticTotal: 0, actualTotal: 0, validationTotal: 0 }
+      };
+    }
+    var d = b.days[dayIdx];
+    d.count++;
+    d.staticTotal += v.staticPrice;
+    d.actualTotal += v.actualPrice;
+    d.validationTotal += v.validationAmt;
+    var dsub = v.isValidated ? d.validation : d.normal;
+    dsub.count++;
+    dsub.staticTotal += v.staticPrice;
+    dsub.actualTotal += v.actualPrice;
+    if (v.isValidated) dsub.validationTotal += v.validationAmt;
   });
 
   var bracketList = Object.keys(brackets).map(function(name){
     var b = brackets[name];
-    b.delta = b.actualTotal - b.staticTotal;
+    var pct = RateEngine.computeDeltaPercents(b.staticTotal, b.actualTotal);
+    b.delta = pct.delta; b.percentOfStatic = pct.percentOfStatic; b.percentOfActual = pct.percentOfActual;
+    b.dayList = Object.keys(b.days).map(function(dayIdx){
+      var d = b.days[dayIdx];
+      var dpct = RateEngine.computeDeltaPercents(d.staticTotal, d.actualTotal);
+      d.dayIndex = Number(dayIdx);
+      d.delta = dpct.delta; d.percentOfStatic = dpct.percentOfStatic; d.percentOfActual = dpct.percentOfActual;
+      return d;
+    }).sort(function(a, b2){ return a.dayIndex - b2.dayIndex; });
     return b;
   });
 
   var totals = bracketList.reduce(function(acc, b){
     return { staticTotal: acc.staticTotal + b.staticTotal, actualTotal: acc.actualTotal + b.actualTotal };
   }, { staticTotal: 0, actualTotal: 0 });
-  totals.delta = totals.actualTotal - totals.staticTotal;
+  var totalsPct = RateEngine.computeDeltaPercents(totals.staticTotal, totals.actualTotal);
+  totals.delta = totalsPct.delta; totals.percentOfStatic = totalsPct.percentOfStatic; totals.percentOfActual = totalsPct.percentOfActual;
 
   return { brackets: bracketList, totals: totals, excluded: excluded };
 };
@@ -536,9 +575,9 @@ window.__engineTestCases.push(function(t){
 <script>
 window.__engineTestCases.push(function(t){
   var visits = [
-    { excluded: null, bracketName: 'Day', staticPrice: 10, actualPrice: 12, validationAmt: 0, isValidated: false },
-    { excluded: null, bracketName: 'Day', staticPrice: 10, actualPrice: 11, validationAmt: 5, isValidated: true },
-    { excluded: null, bracketName: 'Night', staticPrice: 5, actualPrice: 6, validationAmt: 0, isValidated: false },
+    { excluded: null, bracketName: 'Day', entryDate: new Date(2026, 6, 1), staticPrice: 10, actualPrice: 12, validationAmt: 0, isValidated: false },
+    { excluded: null, bracketName: 'Day', entryDate: new Date(2026, 6, 2), staticPrice: 10, actualPrice: 11, validationAmt: 5, isValidated: true },
+    { excluded: null, bracketName: 'Night', entryDate: new Date(2026, 6, 1), staticPrice: 5, actualPrice: 6, validationAmt: 0, isValidated: false },
     { excluded: 'special_event', actualPrice: 20 },
     { excluded: 'over_cutoff', actualPrice: 50 },
     { excluded: 'no_matching_rate_card', actualPrice: 7 }
@@ -567,7 +606,7 @@ window.__engineTestCases.push(function(t){
 
   // Regression: a rate card named "__proto__" must not pollute Object.prototype or crash.
   var trapVisits = [
-    { excluded: null, bracketName: '__proto__', staticPrice: 10, actualPrice: 12, validationAmt: 0, isValidated: false },
+    { excluded: null, bracketName: '__proto__', entryDate: new Date(2026, 6, 1), staticPrice: 10, actualPrice: 12, validationAmt: 0, isValidated: false },
     { excluded: 'some_future_reason', actualPrice: 9 }
   ];
   var trapResult = RateEngine.aggregateByBracket(trapVisits);
@@ -1027,6 +1066,10 @@ function runComparison() {
 }
 
 function fmtMoney(n) { return '$' + n.toFixed(2); }
+function fmtPercent(p) { return p === null ? '—' : (p >= 0 ? '+' : '') + p.toFixed(1) + '%'; }
+function fmtDelta(staticTotal, actualTotal, delta, pctStatic, pctActual) {
+  return fmtMoney(delta) + '  (' + fmtPercent(pctStatic) + ' of static / ' + fmtPercent(pctActual) + ' of actual)';
+}
 
 function renderCompare() {
   var result = state.compareResult;
@@ -1039,28 +1082,40 @@ function renderCompare() {
     '<div class="card"><strong>Overall</strong><br>' +
     'Static: ' + fmtMoney(result.totals.staticTotal) + ' &nbsp; ' +
     'Actual: ' + fmtMoney(result.totals.actualTotal) + ' &nbsp; ' +
-    'Delta: ' + fmtMoney(result.totals.delta) + '</div>';
+    'Delta: ' + fmtDelta(result.totals.staticTotal, result.totals.actualTotal, result.totals.delta, result.totals.percentOfStatic, result.totals.percentOfActual) +
+    '</div>';
 
   bracketListEl.innerHTML = '';
   result.brackets.forEach(function(b){
-    var isUnrolled = state.unrolledBrackets.has(b.name);
     var div = document.createElement('div');
     div.className = 'card';
     var html =
       '<strong>' + escapeHtml(b.name) + '</strong> (Visits: ' + b.count + ')<br>' +
       'Static: ' + fmtMoney(b.staticTotal) + ' &nbsp; Actual: ' + fmtMoney(b.actualTotal) +
-      ' &nbsp; Validation: ' + fmtMoney(b.validationTotal) + ' &nbsp; Delta: ' + fmtMoney(b.delta);
-    if (!state.ignoreValidations) {
-      html += ' &nbsp; <button class="btnGhost" data-bracket="' + escapeHtml(b.name) + '">' + (isUnrolled ? 'Roll up ▲' : 'Unroll ▾') + '</button>';
-      if (isUnrolled) {
-        html += '<div style="margin-top:8px;padding-left:12px;border-left:2px solid var(--line)">' +
-          'Normal (' + b.normal.count + '): Static ' + fmtMoney(b.normal.staticTotal) + ', Actual ' + fmtMoney(b.normal.actualTotal) + '<br>' +
-          'Validation (' + b.validation.count + '): Static ' + fmtMoney(b.validation.staticTotal) + ', Actual ' + fmtMoney(b.validation.actualTotal) + ', Validation ' + fmtMoney(b.validation.validationTotal) +
-          '</div>';
+      ' &nbsp; Validation: ' + fmtMoney(b.validationTotal) + ' &nbsp; Delta: ' + fmtDelta(b.staticTotal, b.actualTotal, b.delta, b.percentOfStatic, b.percentOfActual);
+
+    b.dayList.forEach(function(d){
+      var dayKey = b.name + '|' + d.dayIndex;
+      var dayName = DAY_LABELS[d.dayIndex];
+      var dayUnrolled = state.unrolledBrackets.has(dayKey);
+      html += '<div style="margin-top:6px;padding-left:8px">' +
+        '<strong>' + dayName + '</strong> Visits: ' + d.count + ' &nbsp; ' +
+        'Static: ' + fmtMoney(d.staticTotal) + ' &nbsp; Actual: ' + fmtMoney(d.actualTotal) + ' &nbsp; ' +
+        'Delta: ' + fmtDelta(d.staticTotal, d.actualTotal, d.delta, d.percentOfStatic, d.percentOfActual);
+      if (!state.ignoreValidations) {
+        html += ' &nbsp; <button class="btnGhost" data-bracket="' + escapeHtml(dayKey) + '">' + (dayUnrolled ? 'Roll up ▲' : 'Unroll ▾') + '</button>';
+        if (dayUnrolled) {
+          html += '<div style="margin-top:4px;padding-left:12px;border-left:2px solid var(--line)">' +
+            'Normal (' + d.normal.count + '): Static ' + fmtMoney(d.normal.staticTotal) + ', Actual ' + fmtMoney(d.normal.actualTotal) + '<br>' +
+            'Validation (' + d.validation.count + '): Static ' + fmtMoney(d.validation.staticTotal) + ', Actual ' + fmtMoney(d.validation.actualTotal) + ', Validation ' + fmtMoney(d.validation.validationTotal) +
+            '</div>';
+        }
+      } else {
+        html += ' &nbsp; <button class="btnGhost" disabled style="opacity:.4;cursor:not-allowed">Unroll ▾</button>';
       }
-    } else {
-      html += ' &nbsp; <button class="btnGhost" disabled style="opacity:.4;cursor:not-allowed">Unroll ▾</button>';
-    }
+      html += '</div>';
+    });
+
     div.innerHTML = html;
     bracketListEl.appendChild(div);
   });
@@ -1097,26 +1152,41 @@ window.__engineTestCases.push(function(t){
   state.ignoreValidations = false;
   state.unrolledBrackets = new Set();
 
+  // 7/1/2026 is a Wednesday (dayIndex 3)
   var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
   var row1 = "1\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$12.00\t\t$12.00\tTransient (No Coverage)";
   applyVisitFileBuffer(t.utf16leEncode(header + row1), 'test.csv');
 
-  t.assertEqual(state.compareResult.brackets.length, 1, 'runComparison: produces one bracket for the test visit');
-  t.assertEqual(state.compareResult.totals.actualTotal, 12, 'runComparison: totals reflect actual price');
-  t.assertEqual(document.querySelectorAll('#bracketList .card').length, 1, 'renderCompare: renders one bracket card');
+  var bracket = state.compareResult.brackets[0];
+  t.assertEqual(bracket.dayList.length, 1, 'runComparison: bracket has one day-of-week entry for the one test visit');
+  t.assertEqual(bracket.dayList[0].dayIndex, 3, 'runComparison: day entry keyed to Wednesday (dayIndex 3)');
+  t.assertEqual(bracket.dayList[0].count, 1, 'runComparison: Wednesday day-row has the one visit');
+  t.assertEqual(Math.round(bracket.percentOfStatic), 20, 'runComparison: bracket percentOfStatic = (12-10)/10*100 = 20%');
+  t.assertEqual(Math.round(bracket.percentOfActual * 10) / 10, 16.7, 'runComparison: bracket percentOfActual = (12-10)/12*100 ~= 16.7%');
 
-  var unrollBtn = document.querySelector('#bracketList button[data-bracket]');
-  unrollBtn.click();
-  t.assertEqual(state.unrolledBrackets.has('Day'), true, 'unroll: clicking toggles bracket into unrolledBrackets');
-  t.assertEqual(document.querySelectorAll('#bracketList .card')[0].textContent.indexOf('Normal') > -1, true, 'unroll: expanded card shows Normal/Validation split');
+  var dayUnrollBtn = document.querySelector('#bracketList button[data-bracket="Day|3"]');
+  t.assertEqual(!!dayUnrollBtn, true, 'renderCompare: day-row unroll button uses compound bracket|dayIndex key');
+  dayUnrollBtn.click();
+  t.assertEqual(state.unrolledBrackets.has('Day|3'), true, 'unroll: day-row toggle uses compound key');
+  t.assertEqual(document.querySelectorAll('#bracketList').length > 0 && document.getElementById('bracketList').textContent.indexOf('Normal') > -1, true, 'unroll: expanded day-row shows Normal/Validation split');
 
   var ignoreToggle = document.getElementById('ignoreValidationsToggle');
   ignoreToggle.checked = true;
   ignoreToggle.dispatchEvent(new Event('change', {bubbles:true}));
-  var disabledBtn = document.querySelector('#bracketList button[disabled]');
-  t.assertEqual(!!disabledBtn, true, 'ignoreValidations: Unroll button is disabled when validations are ignored');
+  t.assertEqual(!!document.querySelector('#bracketList button[disabled]'), true, 'ignoreValidations: day-row Unroll button disabled when validations ignored');
   ignoreToggle.checked = false;
   ignoreToggle.dispatchEvent(new Event('change', {bubbles:true}));
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  var pct = RateEngine.computeDeltaPercents(0, 5);
+  t.assertEqual(pct.percentOfStatic, null, 'computeDeltaPercents: null percentOfStatic when static total is 0');
+  t.assertEqual(pct.percentOfActual, 100, 'computeDeltaPercents: percentOfActual still computes when static is 0 but actual is not');
+  var pct2 = RateEngine.computeDeltaPercents(0, 0);
+  t.assertEqual(pct2.percentOfStatic, null, 'computeDeltaPercents: null when both totals are 0 (static)');
+  t.assertEqual(pct2.percentOfActual, null, 'computeDeltaPercents: null when both totals are 0 (actual)');
 });
 </script>
 
