@@ -587,7 +587,7 @@ function newRateCard() {
   // endMin: 1439 (23:59), not 1440 — <input type="time"> can't represent "24:00"
   // (it would render blank), and the reference rate model (Lev_AI_Review.xlsx)
   // itself encodes "end of day" as 23:59:xx rather than exact midnight.
-  return { id: 'rc' + (nextCardId++), name: '', days: [false,false,false,false,false,false,false], startMin: 0, endMin: 1439, graceMin: 15, ladder: [] };
+  return { id: 'rc' + (nextCardId++), name: '', days: [false,false,false,false,false,false,false], startMin: 0, endMin: 1439, graceMin: 15, ladder: [{ thresholdMin: 60, price: 0 }] };
 }
 
 function escapeHtml(str) {
@@ -679,14 +679,14 @@ function renderRateCard(card) {
     col.className = 'ladderCol';
     col.innerHTML =
       '<label>Threshold (min)</label><input type="number" value="' + tier.thresholdMin + '" data-ladder-idx="' + idx + '" data-ladder-field="thresholdMin">' +
-      '<label>Price</label><input type="number" value="' + tier.price + '" data-ladder-idx="' + idx + '" data-ladder-field="price">' +
+      '<label>Price ($)</label><input type="number" value="' + tier.price + '" data-ladder-idx="' + idx + '" data-ladder-field="price">' +
       '<button class="btnDanger" data-ladder-remove="' + idx + '">x</button>';
     ladderTable.appendChild(col);
   });
   ladderRow.appendChild(ladderTable);
   var addLadderBtn = document.createElement('button');
   addLadderBtn.className = 'btnGhost';
-  addLadderBtn.textContent = '+ Add Tier';
+  addLadderBtn.textContent = '+ Add Price Tier';
   addLadderBtn.dataset.action = 'addTier';
   ladderRow.appendChild(addLadderBtn);
   div.appendChild(ladderRow);
@@ -788,7 +788,7 @@ window.__engineTestCases.push(function(t){
 
   var addTierBtn = findBtn(cardDiv(0), function(b){ return b.dataset.action === 'addTier'; });
   addTierBtn.click();
-  t.assertEqual(state.rateCards[0].ladder.length, 1, 'UI: Add Tier adds a ladder entry');
+  t.assertEqual(state.rateCards[0].ladder.length, 2, 'UI: Add Tier adds a ladder entry');
 
   var thresholdInput = cardDiv(0).querySelector('input[data-ladder-field="thresholdMin"]');
   thresholdInput.value = '120';
@@ -806,12 +806,13 @@ window.__engineTestCases.push(function(t){
 
   var removeTierBtn = cardDiv(0).querySelector('[data-ladder-remove]');
   removeTierBtn.click();
-  t.assertEqual(state.rateCards[0].ladder.length, 0, 'UI: removing a ladder tier works');
+  t.assertEqual(state.rateCards[0].ladder.length, 1, 'UI: removing a ladder tier works');
 
   // Regression: new cards must default to a valid <input type="time"> value (23:59, not 24:00).
   var freshCard = newRateCard();
   t.assertEqual(freshCard.endMin, 1439, 'newRateCard: defaults to 23:59 (1439 min), not invalid 24:00');
   t.assertEqual(RateEngine.minutesToTimeString(freshCard.endMin), '23:59', 'newRateCard: default end time renders as a valid time input value');
+  t.assertEqual(freshCard.ladder.length, 1, 'newRateCard: starts with one visible price tier, not an empty ladder');
 
   // Regression: a rate card name containing HTML must not break the rendered markup or execute.
   state.rateCards = [Object.assign(newRateCard(), { name: '"><img src=x>' })];
