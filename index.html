@@ -80,7 +80,7 @@ body.night .switch::after{left:21px}
       <div id="dropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--brand);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
         <div style="font-size:26px;color:var(--brand)">&#8681;</div>
         <h3 style="margin:6px 0 2px;font-size:13px">Drop visit CSV</h3>
-        <div class="state" id="dropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
+        <div id="dropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
       </div>
       <input type="file" id="fileInput" style="display:none" accept=".csv">
     </div>
@@ -920,7 +920,9 @@ window.__engineTestCases.push(function(t){
 
 <script>
 document.getElementById('cutoffHours').addEventListener('input', function(e){
-  state.cutoffHours = Number(e.target.value);
+  // An emptied field parses as 0, which would silently exclude every visit
+  // as over-cutoff — ignore it and keep the last valid value instead.
+  if (e.target.value !== '') state.cutoffHours = Number(e.target.value);
 });
 
 var dropZone = document.getElementById('dropZone');
@@ -933,7 +935,10 @@ dropZone.addEventListener('drop', function(e){
   dropZone.style.background = 'var(--surface)';
   handleFile(e.dataTransfer.files[0]);
 });
-fileInput.addEventListener('change', function(e){ handleFile(e.target.files[0]); });
+fileInput.addEventListener('change', function(e){
+  handleFile(e.target.files[0]);
+  e.target.value = ''; // allow re-selecting the same file (e.g. a corrected re-export) to fire change again
+});
 
 // applyVisitFileBuffer is the synchronous core (state update, status text,
 // triggering comparison) factored out of the async FileReader callback so it
@@ -962,6 +967,13 @@ window.__engineTestCases.push(function(t){
   cutoffInput.value = '12';
   cutoffInput.dispatchEvent(new Event('input', {bubbles:true}));
   t.assertEqual(state.cutoffHours, 12, 'cutoff: editing the input updates state.cutoffHours');
+
+  // Regression: clearing the field (e.g. user backspaces it) must not zero out
+  // the cutoff, which would silently exclude every visit as over-cutoff.
+  cutoffInput.value = '';
+  cutoffInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.cutoffHours, 12, 'cutoff: clearing the input keeps the last valid value instead of becoming 0');
+
   cutoffInput.value = '24';
   cutoffInput.dispatchEvent(new Event('input', {bubbles:true}));
 
