@@ -15,9 +15,9 @@ body.night{--bg:#0a0a0c;--surface:#161719;--line:#2d2d33;--text:#F5F5FA;--muted:
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
 header{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0}
-.logo{font-weight:700;color:var(--brand)}
+.logo{font-weight:700;color:var(--brand);white-space:nowrap}
 .spacer{flex:1}
-nav{display:flex;gap:4px}
+nav{display:flex;gap:4px;justify-content:center}
 nav button{padding:8px 16px;border:none;background:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;color:var(--text)}
 nav button.active{background:var(--brand);color:#fff}
 .page{max-width:1200px;margin:0 auto;padding:20px;display:none}
@@ -46,12 +46,13 @@ body.night .switch::after{left:21px}
 <header>
   <div class="logo">&#9679; Rate Compare</div>
   <div class="spacer"></div>
+  <nav id="tabNav">
+    <button data-tab="setup" class="active">Setup</button>
+    <button data-tab="compare">Compare</button>
+  </nav>
+  <div class="spacer"></div>
   <div class="toggle" id="nightToggle"><span>Night</span><span class="switch"></span></div>
 </header>
-<nav id="tabNav">
-  <button data-tab="setup" class="active">Setup</button>
-  <button data-tab="compare">Compare</button>
-</nav>
 <div id="setupPage" class="page active">
   <h2>Setup</h2>
   <p class="sub">Build your static rate table, then drop in a visit export below.</p>
