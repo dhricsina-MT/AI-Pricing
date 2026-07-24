@@ -86,7 +86,14 @@ body.night .switch::after{left:21px}
     </div>
   </div>
 </div>
-<div id="comparePage" class="page"><h2>Compare</h2></div>
+<div id="comparePage" class="page">
+  <h2>Compare</h2>
+  <p class="sub">Actual (AI-priced) charges vs. what the static rate table would have charged.</p>
+  <div class="row"><label class="toggle"><input type="checkbox" id="ignoreValidationsToggle"><span>Ignore Validations</span></label></div>
+  <div id="totalsSummary"></div>
+  <div id="bracketList"></div>
+  <div id="excludedSummary"></div>
+</div>
 
 <!-- === Shell UI wiring (nav tabs, night toggle) === -->
 <script>
@@ -946,7 +953,7 @@ fileInput.addEventListener('change', function(e){
 function applyVisitFileBuffer(arrayBuffer, filename) {
   state.visits = RateEngine.parseVisitFile(arrayBuffer);
   document.getElementById('dropState').textContent = filename + ' (' + state.visits.length + ' visits)';
-  if (typeof runComparison === 'function') runComparison();
+  runComparison();
 }
 
 function handleFile(file) {
@@ -957,6 +964,110 @@ function handleFile(file) {
   };
   reader.readAsArrayBuffer(file);
 }
+</script>
+
+<script>
+function runComparison() {
+  if (!state.visits.length) return;
+  var processed = state.visits.map(function(row){
+    return RateEngine.processVisit(row, state.rateCards, state.earlyBird, state.cutoffHours);
+  });
+  state.compareResult = RateEngine.aggregateByBracket(processed);
+  renderCompare();
+}
+
+function fmtMoney(n) { return '$' + n.toFixed(2); }
+
+function renderCompare() {
+  var result = state.compareResult;
+  var totalsEl = document.getElementById('totalsSummary');
+  var bracketListEl = document.getElementById('bracketList');
+  var excludedEl = document.getElementById('excludedSummary');
+  if (!result) { totalsEl.innerHTML = ''; bracketListEl.innerHTML = ''; excludedEl.innerHTML = ''; return; }
+
+  totalsEl.innerHTML =
+    '<div class="card"><strong>Overall</strong><br>' +
+    'Static: ' + fmtMoney(result.totals.staticTotal) + ' &nbsp; ' +
+    'Actual: ' + fmtMoney(result.totals.actualTotal) + ' &nbsp; ' +
+    'Delta: ' + fmtMoney(result.totals.delta) + '</div>';
+
+  bracketListEl.innerHTML = '';
+  result.brackets.forEach(function(b){
+    var isUnrolled = state.unrolledBrackets.has(b.name);
+    var div = document.createElement('div');
+    div.className = 'card';
+    var html =
+      '<strong>' + escapeHtml(b.name) + '</strong> (Visits: ' + b.count + ')<br>' +
+      'Static: ' + fmtMoney(b.staticTotal) + ' &nbsp; Actual: ' + fmtMoney(b.actualTotal) +
+      ' &nbsp; Validation: ' + fmtMoney(b.validationTotal) + ' &nbsp; Delta: ' + fmtMoney(b.delta);
+    if (!state.ignoreValidations) {
+      html += ' &nbsp; <button class="btnGhost" data-bracket="' + escapeHtml(b.name) + '">' + (isUnrolled ? 'Roll up ▲' : 'Unroll ▾') + '</button>';
+      if (isUnrolled) {
+        html += '<div style="margin-top:8px;padding-left:12px;border-left:2px solid var(--line)">' +
+          'Normal (' + b.normal.count + '): Static ' + fmtMoney(b.normal.staticTotal) + ', Actual ' + fmtMoney(b.normal.actualTotal) + '<br>' +
+          'Validation (' + b.validation.count + '): Static ' + fmtMoney(b.validation.staticTotal) + ', Actual ' + fmtMoney(b.validation.actualTotal) + ', Validation ' + fmtMoney(b.validation.validationTotal) +
+          '</div>';
+      }
+    } else {
+      html += ' &nbsp; <button class="btnGhost" disabled style="opacity:.4;cursor:not-allowed">Unroll ▾</button>';
+    }
+    div.innerHTML = html;
+    bracketListEl.appendChild(div);
+  });
+
+  excludedEl.innerHTML =
+    '<div class="card">' +
+    'Excluded — Special Event: ' + result.excluded.special_event.count + ' visits, ' + fmtMoney(result.excluded.special_event.actualTotal) + '<br>' +
+    'Excluded — Over cutoff: ' + result.excluded.over_cutoff.count + ' visits, ' + fmtMoney(result.excluded.over_cutoff.actualTotal) + '<br>' +
+    'Excluded — No matching rate card: ' + result.excluded.no_matching_rate_card.count + ' visits, ' + fmtMoney(result.excluded.no_matching_rate_card.actualTotal) +
+    '</div>';
+}
+
+document.getElementById('bracketList').addEventListener('click', function(e){
+  if (e.target.dataset.bracket) {
+    var name = e.target.dataset.bracket;
+    if (state.unrolledBrackets.has(name)) state.unrolledBrackets.delete(name);
+    else state.unrolledBrackets.add(name);
+    renderCompare();
+  }
+});
+
+document.getElementById('ignoreValidationsToggle').addEventListener('change', function(e){
+  state.ignoreValidations = e.target.checked;
+  renderCompare();
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  state.rateCards = [{ id:'day', name:'Day', days:[true,true,true,true,true,true,true], startMin:0, endMin:1439, graceMin:15,
+    ladder:[{thresholdMin:120,price:10}] }];
+  state.earlyBird = { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 };
+  state.cutoffHours = 24;
+  state.ignoreValidations = false;
+  state.unrolledBrackets = new Set();
+
+  var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
+  var row1 = "1\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$12.00\t\t$12.00\tTransient (No Coverage)";
+  applyVisitFileBuffer(t.utf16leEncode(header + row1), 'test.csv');
+
+  t.assertEqual(state.compareResult.brackets.length, 1, 'runComparison: produces one bracket for the test visit');
+  t.assertEqual(state.compareResult.totals.actualTotal, 12, 'runComparison: totals reflect actual price');
+  t.assertEqual(document.querySelectorAll('#bracketList .card').length, 1, 'renderCompare: renders one bracket card');
+
+  var unrollBtn = document.querySelector('#bracketList button[data-bracket]');
+  unrollBtn.click();
+  t.assertEqual(state.unrolledBrackets.has('Day'), true, 'unroll: clicking toggles bracket into unrolledBrackets');
+  t.assertEqual(document.querySelectorAll('#bracketList .card')[0].textContent.indexOf('Normal') > -1, true, 'unroll: expanded card shows Normal/Validation split');
+
+  var ignoreToggle = document.getElementById('ignoreValidationsToggle');
+  ignoreToggle.checked = true;
+  ignoreToggle.dispatchEvent(new Event('change', {bubbles:true}));
+  var disabledBtn = document.querySelector('#bracketList button[disabled]');
+  t.assertEqual(!!disabledBtn, true, 'ignoreValidations: Unroll button is disabled when validations are ignored');
+  ignoreToggle.checked = false;
+  ignoreToggle.dispatchEvent(new Event('change', {bubbles:true}));
+});
 </script>
 
 <script>
@@ -977,8 +1088,8 @@ window.__engineTestCases.push(function(t){
   cutoffInput.value = '24';
   cutoffInput.dispatchEvent(new Event('input', {bubbles:true}));
 
-  var header = "Sort by\tTransaction Id\tPrice Amt\n";
-  var dataRow = "1\t290956872\t$13.78";
+  var header = "Sort by\tTransaction Id\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
+  var dataRow = "1\t290956872\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$13.78\t\t$13.78\tTransient (No Coverage)";
   var buf = t.utf16leEncode(header + dataRow);
   applyVisitFileBuffer(buf, 'test-visits.csv');
 
