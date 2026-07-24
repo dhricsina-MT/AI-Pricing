@@ -35,6 +35,10 @@ body.night .switch::after{left:21px}
 .ctl input[type=text],.ctl input[type=number],.ctl input[type=time]{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:13px}
 .dayBoxes{display:flex;gap:6px}
 .dayBoxes label{display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--muted)}
+.coverageRow{display:flex;align-items:center;gap:4px;margin-bottom:2px}
+.coverageRow .dayLabel{width:36px;font-size:11px;color:var(--muted);flex-shrink:0}
+.coverageCell{width:16px;height:16px;border:1px solid var(--line);border-radius:2px}
+.coverageCell.covered{background:var(--teal);border-color:var(--teal)}
 .ladderTable{display:flex;gap:8px;flex-wrap:wrap}
 .ladderCol{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--bg)}
 .btnPrimary{background:var(--brand);color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600}
@@ -54,6 +58,10 @@ body.night .switch::after{left:21px}
   <div class="toggle" id="nightToggle"><span>Night</span><span class="switch"></span></div>
 </header>
 <div id="setupPage" class="page active">
+  <div class="card">
+    <div class="sub">Rate coverage (green = a rate card covers that hour; blank = no rate assigned &mdash; gaps are often intentional, e.g. closed hours)</div>
+    <div id="coverageGrid"></div>
+  </div>
   <h2>Setup</h2>
   <p class="sub">Build your static rate table, then drop in a visit export below.</p>
   <div id="rateCardList"></div>
@@ -630,6 +638,30 @@ function renderRateCards() {
   state.rateCards.forEach(function(card){
     list.appendChild(renderRateCard(card));
   });
+  renderCoverageGrid();
+}
+
+function isHourCovered(rateCards, dayIdx, hour) {
+  var minute = hour * 60;
+  for (var i = 0; i < rateCards.length; i++) {
+    var card = rateCards[i];
+    if (card.days[dayIdx] && RateEngine.withinRange(minute, card.startMin, card.endMin)) return true;
+  }
+  return false;
+}
+function renderCoverageGrid() {
+  var el = document.getElementById('coverageGrid');
+  el.innerHTML = '';
+  DAY_ORDER.forEach(function(dayIdx){
+    var row = document.createElement('div');
+    row.className = 'coverageRow';
+    row.innerHTML = '<div class="dayLabel">' + DAY_LABELS[dayIdx] + '</div>';
+    for (var hour = 0; hour < 24; hour++) {
+      var covered = isHourCovered(state.rateCards, dayIdx, hour);
+      row.innerHTML += '<div class="coverageCell' + (covered ? ' covered' : '') + '"></div>';
+    }
+    el.appendChild(row);
+  });
 }
 
 function renderRateCard(card) {
@@ -736,6 +768,7 @@ document.getElementById('addCardBtn').addEventListener('click', function(){
   state.rateCards.push(newRateCard());
   renderRateCards();
 });
+renderCoverageGrid();
 </script>
 
 <script>
@@ -747,6 +780,19 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(minutesFromParts(12, 0, 'AM'), 0, 'minutesFromParts: 12:00 AM is midnight');
   t.assertEqual(minutesFromParts(4, 0, 'PM'), 960, 'minutesFromParts: 4:00 PM is 960');
   t.assertEqual(minutesFromParts(12, 30, 'PM'), 750, 'minutesFromParts: 12:30 PM is 750');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  state.rateCards = [{ id:'c1', name:'Day', days:[false,true,false,false,false,false,false], startMin:240, endMin:960, graceMin:15, ladder:[{thresholdMin:60,price:5}] }];
+  renderRateCards();
+  t.assertEqual(isHourCovered(state.rateCards, 1, 5), true, 'coverage: hour 5am on Monday is covered (4am-4pm card)');
+  t.assertEqual(isHourCovered(state.rateCards, 1, 20), false, 'coverage: hour 8pm on Monday is not covered');
+  t.assertEqual(isHourCovered(state.rateCards, 2, 5), false, 'coverage: Tuesday is not covered by a Monday-only card');
+  var mondayRow = document.querySelectorAll('#coverageGrid .coverageRow')[0];
+  var coveredCells = mondayRow.querySelectorAll('.coverageCell.covered');
+  t.assertEqual(coveredCells.length, 12, 'coverage: Monday row shows 12 covered hours (4am-4pm)');
 });
 </script>
 
