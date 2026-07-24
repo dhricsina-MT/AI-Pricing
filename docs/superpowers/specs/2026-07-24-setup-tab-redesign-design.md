@@ -26,9 +26,6 @@ minutes") revealed the rate model itself was wrong, not just the UI:
   cutoff). Multiple cards intentionally share an identical Start/End/Days
   window to form a multi-band group — e.g. three cards all "6am–4pm" with Up
   To 60 / 120 / 1440 — rather than one card owning three nested tiers.
-- **Grace period is one global value, not per-card.** Whatever it's set to,
-  any visit with duration under that value generates $0 revenue on every
-  card uniformly.
 - **No CSS at all for `<select>` elements** caused every dropdown (time
   pickers, Exit Condition) to render in the raw unstyled browser default,
   clashing with the rest of the styled UI — this was the "fonts are all
@@ -49,10 +46,13 @@ minutes") revealed the rate model itself was wrong, not just the UI:
 Per `TOP Interface.png`: the coverage-grid card's title row also holds the
 global controls, right-aligned:
 
-- **Grace Period** dropdown — options `0, 5, 10, 15, 20, 30, 45, 60, 70, 75,
-  90, 120, 180` (minutes), default `15`. One value (`state.graceMin`) used by
-  every rate card. Any visit with `duration < graceMin` generates $0,
-  regardless of which band it would otherwise match.
+- **No Grace Period setting.** Descoped entirely — it was redundant with the
+  band system itself. If a lot wants a free initial period, that's just a
+  band with `rate: 0` and its own `upToMin` cutoff, same as any other band. A
+  duration that isn't covered by any band (nothing in its group's range
+  reaches down that low) falls through to the existing `no_matching_rate_card`
+  exclusion, matching how the reference spreadsheet handles sub-threshold
+  visits (excluded from Count/Sum/AI-Pricing entirely, not counted at $0).
 - **Add Early Bird** checkbox — same checkbox that exists today
   (`state.earlyBird.enabled`), relocated into this header row. Checking it
   expands the existing Early Bird fields (entry window, exit condition/time,
@@ -105,10 +105,12 @@ Each card represents **one duration band**:
 - **Row 4:** Day-of-week checkboxes (Mon–Sun) + the existing preset buttons
   (`All days`, `Weekday (Mon-Fri)`, `Weekend (Sat-Sun)`) — unchanged from
   today, kept as-is.
-- **No per-card Grace Period field** — removed; grace is global (see above).
-- **No "Up to" field is hidden by default this time** — it's a normal,
-  always-visible numeric input (minutes), labeled clearly as "Up to
-  (minutes)" instead of the confusing "Threshold (min)."
+- **No Grace Period field at all** — removed entirely (see above).
+- The "Up to" field is a normal, always-visible numeric input (minutes),
+  labeled clearly as "Up to (minutes)" instead of the confusing "Threshold
+  (min)." `newRateCard()` pre-fills it with `15` as a starting default (the
+  same number grace used to default to), but it's just an ordinary editable
+  field the user can change to anything — not a special first-band behavior.
 - **Delete button**: absent on the first/default rate card (there must
   always be at least one, so it's not removable); present (orange outline,
   same `.btnDanger` styling) on any card added afterward via "+ Add Rate
@@ -130,15 +132,16 @@ Given an entry timestamp:
 2. Among the matching cards (a band group — normally sharing an identical
    window), sort by `upToMin` ascending.
 3. A visit matches a given band if:
-   `duration >= previousBand.upToMin (or graceMin, for the first band)`
-   **and** `duration < thisBand.upToMin`.
+   `duration >= previousBand.upToMin (or 0, for the lowest band in the group)`
+   **and** `duration < thisBand.upToMin`. Every duration `>= 0` always lands
+   in some band — there's no separate "too short, excluded" gap. A lot that
+   wants an initial free period just adds its own `rate: 0` band with the
+   appropriate `upToMin`, same as any other band; nothing special-cased.
 4. The band with the highest `upToMin` in a group is open-ended — it also
    catches any duration `>= its lower bound`, even beyond its own `upToMin`
    value. This is how a single-card "evening flat rate" (one band, one high
    `upToMin` like 1440) covers an entire overnight stay regardless of exact
    length.
-5. Visits with `duration < graceMin` always price at $0, before any band
-   matching happens.
 
 No overlap-blocking validation is implemented in this pass (explicitly
 descoped — flagging via the coverage grid's red cells is enough for now).
@@ -174,8 +177,9 @@ actually match the rest of the app and read cleanly at a glance:
 
 - `card.ladder` (array of `{thresholdMin, price}`) is replaced by two flat
   fields: `card.rate` (number) and `card.upToMin` (number).
-- `card.graceMin` is removed from the card shape; `state.graceMin` (global)
-  is threaded through `processVisit` instead.
+- `card.graceMin` and any grace-period concept is removed entirely — no
+  replacement global setting. The lowest band in a matched group implicitly
+  starts at duration `0`.
 - `RateEngine.lookupLadderPrice` is replaced by the band-matching logic
   described above (new function, e.g. `RateEngine.priceForBand` or similar —
   exact naming decided at plan time), operating across the *set* of cards
