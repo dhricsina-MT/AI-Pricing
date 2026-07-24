@@ -57,6 +57,21 @@ body.night .switch::after{left:21px}
   <p class="sub">Build your static rate table, then drop in a visit export below.</p>
   <div id="rateCardList"></div>
   <button id="addCardBtn" class="btnPrimary">+ Add Rate Card</button>
+  <div class="card">
+    <div class="row">
+      <div class="ctl"><label>Early Bird</label>
+        <label><input type="checkbox" id="ebEnabled"> Enabled</label>
+      </div>
+      <div class="ctl"><label>Entry window start</label><input type="time" id="ebEntryStart"></div>
+      <div class="ctl"><label>Entry window end</label><input type="time" id="ebEntryEnd"></div>
+      <div class="ctl"><label>Exit condition</label>
+        <select id="ebExitCondition"><option value="before">Exit Before</option><option value="after">Exit After</option></select>
+      </div>
+      <div class="ctl"><label>Exit time</label><input type="time" id="ebExitTime"></div>
+      <div class="ctl"><label>Price</label><input type="number" id="ebPrice"></div>
+    </div>
+    <div class="row"><div class="dayBoxes" id="ebDayBoxes"></div></div>
+  </div>
 </div>
 <div id="comparePage" class="page"><h2>Compare</h2></div>
 
@@ -798,6 +813,79 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(copy.days, [false,false,true,true,true,true,false], 'copy: new card has only the checked target days (Tue-Fri), not Monday');
   t.assertEqual(state.rateCards[0].days, [false,true,false,false,false,false,false], 'copy: original card is unchanged (still only Monday)');
   t.assertEqual(copy.id !== state.rateCards[0].id, true, 'copy: new card has a distinct id');
+});
+</script>
+
+<script>
+function renderEarlyBird() {
+  document.getElementById('ebEnabled').checked = state.earlyBird.enabled;
+  document.getElementById('ebEntryStart').value = RateEngine.minutesToTimeString(state.earlyBird.entryStartMin);
+  document.getElementById('ebEntryEnd').value = RateEngine.minutesToTimeString(state.earlyBird.entryEndMin);
+  document.getElementById('ebExitCondition').value = state.earlyBird.exitCondition;
+  document.getElementById('ebExitTime').value = RateEngine.minutesToTimeString(state.earlyBird.exitMin);
+  document.getElementById('ebPrice').value = state.earlyBird.price;
+  var dayBoxes = document.getElementById('ebDayBoxes');
+  dayBoxes.innerHTML = '';
+  DAY_ORDER.forEach(function(dayIdx){
+    var lbl = document.createElement('label');
+    lbl.innerHTML = '<input type="checkbox" data-eb-day="' + dayIdx + '" ' + (state.earlyBird.days[dayIdx] ? 'checked' : '') + '>' + DAY_LABELS[dayIdx];
+    dayBoxes.appendChild(lbl);
+  });
+}
+document.getElementById('ebEnabled').addEventListener('change', function(e){ state.earlyBird.enabled = e.target.checked; });
+document.getElementById('ebEntryStart').addEventListener('input', function(e){ state.earlyBird.entryStartMin = RateEngine.timeStringToMinutes(e.target.value); });
+document.getElementById('ebEntryEnd').addEventListener('input', function(e){ state.earlyBird.entryEndMin = RateEngine.timeStringToMinutes(e.target.value); });
+document.getElementById('ebExitCondition').addEventListener('change', function(e){ state.earlyBird.exitCondition = e.target.value; });
+document.getElementById('ebExitTime').addEventListener('input', function(e){ state.earlyBird.exitMin = RateEngine.timeStringToMinutes(e.target.value); });
+document.getElementById('ebPrice').addEventListener('input', function(e){ state.earlyBird.price = Number(e.target.value); });
+document.getElementById('ebDayBoxes').addEventListener('change', function(e){
+  if (e.target.dataset.ebDay !== undefined) state.earlyBird.days[Number(e.target.dataset.ebDay)] = e.target.checked;
+});
+renderEarlyBird();
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  document.getElementById('ebEnabled').checked = false;
+  document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
+
+  document.getElementById('ebEnabled').checked = true;
+  document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
+  t.assertEqual(state.earlyBird.enabled, true, 'EB UI: enabling checkbox updates state');
+
+  var entryStart = document.getElementById('ebEntryStart');
+  entryStart.value = '06:00';
+  entryStart.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.earlyBird.entryStartMin, 360, 'EB UI: entry start time input updates state in minutes');
+
+  var entryEnd = document.getElementById('ebEntryEnd');
+  entryEnd.value = '09:00';
+  entryEnd.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.earlyBird.entryEndMin, 540, 'EB UI: entry end time input updates state in minutes');
+
+  var exitCond = document.getElementById('ebExitCondition');
+  exitCond.value = 'before';
+  exitCond.dispatchEvent(new Event('change', {bubbles:true}));
+  t.assertEqual(state.earlyBird.exitCondition, 'before', 'EB UI: exit condition select updates state');
+
+  var exitTime = document.getElementById('ebExitTime');
+  exitTime.value = '16:00';
+  exitTime.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.earlyBird.exitMin, 960, 'EB UI: exit time input updates state in minutes');
+
+  var priceInput = document.getElementById('ebPrice');
+  priceInput.value = '5';
+  priceInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.earlyBird.price, 5, 'EB UI: price input updates state');
+
+  var wedCheckbox = document.querySelector('#ebDayBoxes input[data-eb-day="3"]');
+  wedCheckbox.checked = true;
+  wedCheckbox.dispatchEvent(new Event('change', {bubbles:true}));
+  t.assertEqual(state.earlyBird.days[3], true, 'EB UI: day checkbox updates state');
+
+  renderEarlyBird();
+  t.assertEqual(document.getElementById('ebEnabled').checked, true, 'EB UI: renderEarlyBird reflects enabled state back to the checkbox');
+  t.assertEqual(document.getElementById('ebEntryStart').value, '06:00', 'EB UI: renderEarlyBird reflects entry start back to the input');
 });
 </script>
 
