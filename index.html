@@ -537,7 +537,14 @@ var DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun display order, values index into ca
 var DAY_LABELS = { 1:'Mon', 2:'Tue', 3:'Wed', 4:'Thu', 5:'Fri', 6:'Sat', 0:'Sun' };
 
 function newRateCard() {
-  return { id: 'rc' + (nextCardId++), name: '', days: [false,false,false,false,false,false,false], startMin: 0, endMin: 1440, graceMin: 15, ladder: [] };
+  // endMin: 1439 (23:59), not 1440 — <input type="time"> can't represent "24:00"
+  // (it would render blank), and the reference rate model (Lev_AI_Review.xlsx)
+  // itself encodes "end of day" as 23:59:xx rather than exact midnight.
+  return { id: 'rc' + (nextCardId++), name: '', days: [false,false,false,false,false,false,false], startMin: 0, endMin: 1439, graceMin: 15, ladder: [] };
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function renderRateCards() {
@@ -555,7 +562,7 @@ function renderRateCard(card) {
   var nameRow = document.createElement('div');
   nameRow.className = 'row';
   nameRow.innerHTML =
-    '<div class="ctl"><label>Name</label><input type="text" value="' + card.name + '" data-field="name"></div>' +
+    '<div class="ctl"><label>Name</label><input type="text" value="' + escapeHtml(card.name) + '" data-field="name"></div>' +
     '<div class="ctl"><label>Start</label><input type="time" value="' + RateEngine.minutesToTimeString(card.startMin) + '" data-field="startMin"></div>' +
     '<div class="ctl"><label>End</label><input type="time" value="' + RateEngine.minutesToTimeString(card.endMin) + '" data-field="endMin"></div>' +
     '<div class="ctl"><label>Grace (min)</label><input type="number" value="' + card.graceMin + '" data-field="graceMin"></div>' +
@@ -572,11 +579,16 @@ function renderRateCard(card) {
     dayBoxes.appendChild(lbl);
   });
   dayRow.appendChild(dayBoxes);
-  ['All days', 'Weekday (Mon-Fri)', 'Weekend (Sat-Sun)'].forEach(function(preset){
+  var DAY_PRESETS = [
+    { key: 'all', label: 'All days' },
+    { key: 'weekday', label: 'Weekday (Mon-Fri)' },
+    { key: 'weekend', label: 'Weekend (Sat-Sun)' }
+  ];
+  DAY_PRESETS.forEach(function(preset){
     var btn = document.createElement('button');
     btn.className = 'btnGhost';
-    btn.textContent = preset;
-    btn.dataset.preset = preset;
+    btn.textContent = preset.label;
+    btn.dataset.preset = preset.key;
     dayRow.appendChild(btn);
   });
   div.appendChild(dayRow);
@@ -632,9 +644,9 @@ function renderRateCard(card) {
       card.ladder.splice(Number(e.target.dataset.ladderRemove), 1);
       renderRateCards();
     } else if (e.target.dataset.preset) {
-      if (e.target.dataset.preset === 'All days') card.days = [true,true,true,true,true,true,true];
-      if (e.target.dataset.preset === 'Weekday (Mon-Fri)') card.days = [false,true,true,true,true,true,false];
-      if (e.target.dataset.preset === 'Weekend (Sat-Sun)') card.days = [true,false,false,false,false,false,true];
+      if (e.target.dataset.preset === 'all') card.days = [true,true,true,true,true,true,true];
+      if (e.target.dataset.preset === 'weekday') card.days = [false,true,true,true,true,true,false];
+      if (e.target.dataset.preset === 'weekend') card.days = [true,false,false,false,false,false,true];
       renderRateCards();
     }
   });
@@ -676,7 +688,7 @@ window.__engineTestCases.push(function(t){
   wedCheckbox.dispatchEvent(new Event('input', {bubbles:true}));
   t.assertEqual(state.rateCards[0].days[3], true, 'UI: checking a day checkbox updates state');
 
-  var weekendBtn = findBtn(cardDiv(0), function(b){ return b.dataset.preset === 'Weekend (Sat-Sun)'; });
+  var weekendBtn = findBtn(cardDiv(0), function(b){ return b.dataset.preset === 'weekend'; });
   weekendBtn.click();
   t.assertEqual(state.rateCards[0].days, [true,false,false,false,false,false,true], 'UI: Weekend preset sets only Sat/Sun');
 
@@ -701,6 +713,18 @@ window.__engineTestCases.push(function(t){
   var removeTierBtn = cardDiv(0).querySelector('[data-ladder-remove]');
   removeTierBtn.click();
   t.assertEqual(state.rateCards[0].ladder.length, 0, 'UI: removing a ladder tier works');
+
+  // Regression: new cards must default to a valid <input type="time"> value (23:59, not 24:00).
+  var freshCard = newRateCard();
+  t.assertEqual(freshCard.endMin, 1439, 'newRateCard: defaults to 23:59 (1439 min), not invalid 24:00');
+  t.assertEqual(RateEngine.minutesToTimeString(freshCard.endMin), '23:59', 'newRateCard: default end time renders as a valid time input value');
+
+  // Regression: a rate card name containing HTML must not break the rendered markup or execute.
+  state.rateCards = [Object.assign(newRateCard(), { name: '"><img src=x>' })];
+  renderRateCards();
+  var nameInputAfterRender = cardDiv(0).querySelector('input[data-field="name"]');
+  t.assertEqual(nameInputAfterRender.value, '"><img src=x>', 'renderRateCard: HTML-bearing name escapes safely and round-trips through the input value');
+  t.assertEqual(document.querySelectorAll('#rateCardList img').length, 0, 'renderRateCard: HTML-bearing name does not inject a live element');
 });
 </script>
 
