@@ -58,20 +58,22 @@ body.night .switch::after{left:21px}
   <p class="sub">Build your static rate table, then drop in a visit export below.</p>
   <div id="rateCardList"></div>
   <button id="addCardBtn" class="btnPrimary">+ Add Rate Card</button>
-  <div class="card">
+  <div class="card" id="ebCard">
     <div class="row">
       <div class="ctl"><label>Early Bird</label>
         <label><input type="checkbox" id="ebEnabled"> Enabled</label>
       </div>
-      <div class="ctl"><label>Entry window start</label><input type="time" id="ebEntryStart"></div>
-      <div class="ctl"><label>Entry window end</label><input type="time" id="ebEntryEnd"></div>
-      <div class="ctl"><label>Exit condition</label>
-        <select id="ebExitCondition"><option value="before">Exit Before</option><option value="after">Exit After</option></select>
+      <div id="ebFields" style="display:contents">
+        <div class="ctl"><label>Entry window start</label><div id="ebEntryStartGroup"></div></div>
+        <div class="ctl"><label>Entry window end</label><div id="ebEntryEndGroup"></div></div>
+        <div class="ctl"><label>Exit condition</label>
+          <select id="ebExitCondition"><option value="before">Exit Before</option><option value="after">Exit After</option></select>
+        </div>
+        <div class="ctl"><label>Exit time</label><div id="ebExitTimeGroup"></div></div>
+        <div class="ctl"><label>Price</label><input type="number" id="ebPrice"></div>
       </div>
-      <div class="ctl"><label>Exit time</label><input type="time" id="ebExitTime"></div>
-      <div class="ctl"><label>Price</label><input type="number" id="ebPrice"></div>
     </div>
-    <div class="row"><div class="dayBoxes" id="ebDayBoxes"></div></div>
+    <div class="row" id="ebDayRow"><div class="dayBoxes" id="ebDayBoxes"></div></div>
   </div>
   <div class="card">
     <div class="row">
@@ -823,10 +825,10 @@ window.__engineTestCases.push(function(t){
 <script>
 function renderEarlyBird() {
   document.getElementById('ebEnabled').checked = state.earlyBird.enabled;
-  document.getElementById('ebEntryStart').value = RateEngine.minutesToTimeString(state.earlyBird.entryStartMin);
-  document.getElementById('ebEntryEnd').value = RateEngine.minutesToTimeString(state.earlyBird.entryEndMin);
+  document.getElementById('ebEntryStartGroup').innerHTML = timeDropdownsHtml(state.earlyBird.entryStartMin, 'entryStartMin');
+  document.getElementById('ebEntryEndGroup').innerHTML = timeDropdownsHtml(state.earlyBird.entryEndMin, 'entryEndMin');
   document.getElementById('ebExitCondition').value = state.earlyBird.exitCondition;
-  document.getElementById('ebExitTime').value = RateEngine.minutesToTimeString(state.earlyBird.exitMin);
+  document.getElementById('ebExitTimeGroup').innerHTML = timeDropdownsHtml(state.earlyBird.exitMin, 'exitMin');
   document.getElementById('ebPrice').value = state.earlyBird.price;
   var dayBoxes = document.getElementById('ebDayBoxes');
   dayBoxes.innerHTML = '';
@@ -835,12 +837,20 @@ function renderEarlyBird() {
     lbl.innerHTML = '<input type="checkbox" data-eb-day="' + dayIdx + '" ' + (state.earlyBird.days[dayIdx] ? 'checked' : '') + '>' + DAY_LABELS[dayIdx];
     dayBoxes.appendChild(lbl);
   });
+  var showFields = state.earlyBird.enabled;
+  document.getElementById('ebFields').style.display = showFields ? 'contents' : 'none';
+  document.getElementById('ebDayRow').style.display = showFields ? '' : 'none';
 }
-document.getElementById('ebEnabled').addEventListener('change', function(e){ state.earlyBird.enabled = e.target.checked; });
-document.getElementById('ebEntryStart').addEventListener('input', function(e){ if (e.target.value) state.earlyBird.entryStartMin = RateEngine.timeStringToMinutes(e.target.value); });
-document.getElementById('ebEntryEnd').addEventListener('input', function(e){ if (e.target.value) state.earlyBird.entryEndMin = RateEngine.timeStringToMinutes(e.target.value); });
+document.getElementById('ebEnabled').addEventListener('change', function(e){
+  state.earlyBird.enabled = e.target.checked;
+  renderEarlyBird();
+});
+document.getElementById('ebCard').addEventListener('input', function(e){
+  if (e.target.dataset.timefield) {
+    state.earlyBird[e.target.dataset.timefield] = readTimeDropdowns(e.target.parentElement, e.target.dataset.timefield);
+  }
+});
 document.getElementById('ebExitCondition').addEventListener('change', function(e){ state.earlyBird.exitCondition = e.target.value; });
-document.getElementById('ebExitTime').addEventListener('input', function(e){ if (e.target.value) state.earlyBird.exitMin = RateEngine.timeStringToMinutes(e.target.value); });
 document.getElementById('ebPrice').addEventListener('input', function(e){ state.earlyBird.price = Number(e.target.value); });
 document.getElementById('ebDayBoxes').addEventListener('change', function(e){
   if (e.target.dataset.ebDay !== undefined) state.earlyBird.days[Number(e.target.dataset.ebDay)] = e.target.checked;
@@ -852,30 +862,44 @@ renderEarlyBird();
 window.__engineTestCases.push(function(t){
   document.getElementById('ebEnabled').checked = false;
   document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
+  t.assertEqual(document.getElementById('ebFields').style.display, 'none', 'EB UI: fields hidden when disabled');
 
   document.getElementById('ebEnabled').checked = true;
   document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
   t.assertEqual(state.earlyBird.enabled, true, 'EB UI: enabling checkbox updates state');
+  t.assertEqual(document.getElementById('ebFields').style.display, 'contents', 'EB UI: fields visible when enabled');
 
-  var entryStart = document.getElementById('ebEntryStart');
-  entryStart.value = '06:00';
-  entryStart.dispatchEvent(new Event('input', {bubbles:true}));
-  t.assertEqual(state.earlyBird.entryStartMin, 360, 'EB UI: entry start time input updates state in minutes');
+  var entryStartGroup = document.getElementById('ebEntryStartGroup');
+  var esHour = entryStartGroup.querySelector('select[data-timefield="entryStartMin"][data-timepart="hour"]');
+  esHour.value = '6'; esHour.dispatchEvent(new Event('input', {bubbles:true}));
+  var esMin = entryStartGroup.querySelector('select[data-timefield="entryStartMin"][data-timepart="minute"]');
+  esMin.value = '0'; esMin.dispatchEvent(new Event('input', {bubbles:true}));
+  var esAmpm = entryStartGroup.querySelector('select[data-timefield="entryStartMin"][data-timepart="ampm"]');
+  esAmpm.value = 'AM'; esAmpm.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.earlyBird.entryStartMin, 360, 'EB UI: entry start time dropdowns update state in minutes');
 
-  var entryEnd = document.getElementById('ebEntryEnd');
-  entryEnd.value = '09:00';
-  entryEnd.dispatchEvent(new Event('input', {bubbles:true}));
-  t.assertEqual(state.earlyBird.entryEndMin, 540, 'EB UI: entry end time input updates state in minutes');
+  var entryEndGroup = document.getElementById('ebEntryEndGroup');
+  var eeHour = entryEndGroup.querySelector('select[data-timefield="entryEndMin"][data-timepart="hour"]');
+  eeHour.value = '9'; eeHour.dispatchEvent(new Event('input', {bubbles:true}));
+  var eeMin = entryEndGroup.querySelector('select[data-timefield="entryEndMin"][data-timepart="minute"]');
+  eeMin.value = '0'; eeMin.dispatchEvent(new Event('input', {bubbles:true}));
+  var eeAmpm = entryEndGroup.querySelector('select[data-timefield="entryEndMin"][data-timepart="ampm"]');
+  eeAmpm.value = 'AM'; eeAmpm.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.earlyBird.entryEndMin, 540, 'EB UI: entry end time dropdowns update state in minutes');
 
   var exitCond = document.getElementById('ebExitCondition');
   exitCond.value = 'before';
   exitCond.dispatchEvent(new Event('change', {bubbles:true}));
   t.assertEqual(state.earlyBird.exitCondition, 'before', 'EB UI: exit condition select updates state');
 
-  var exitTime = document.getElementById('ebExitTime');
-  exitTime.value = '16:00';
-  exitTime.dispatchEvent(new Event('input', {bubbles:true}));
-  t.assertEqual(state.earlyBird.exitMin, 960, 'EB UI: exit time input updates state in minutes');
+  var exitTimeGroup = document.getElementById('ebExitTimeGroup');
+  var etHour = exitTimeGroup.querySelector('select[data-timefield="exitMin"][data-timepart="hour"]');
+  etHour.value = '4'; etHour.dispatchEvent(new Event('input', {bubbles:true}));
+  var etMin = exitTimeGroup.querySelector('select[data-timefield="exitMin"][data-timepart="minute"]');
+  etMin.value = '0'; etMin.dispatchEvent(new Event('input', {bubbles:true}));
+  var etAmpm = exitTimeGroup.querySelector('select[data-timefield="exitMin"][data-timepart="ampm"]');
+  etAmpm.value = 'PM'; etAmpm.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.earlyBird.exitMin, 960, 'EB UI: exit time dropdowns update state in minutes');
 
   var priceInput = document.getElementById('ebPrice');
   priceInput.value = '5';
@@ -889,14 +913,16 @@ window.__engineTestCases.push(function(t){
 
   renderEarlyBird();
   t.assertEqual(document.getElementById('ebEnabled').checked, true, 'EB UI: renderEarlyBird reflects enabled state back to the checkbox');
-  t.assertEqual(document.getElementById('ebEntryStart').value, '06:00', 'EB UI: renderEarlyBird reflects entry start back to the input');
+  var esHourAgain = document.getElementById('ebEntryStartGroup').querySelector('select[data-timepart="hour"]');
+  t.assertEqual(esHourAgain.value, '6', 'EB UI: renderEarlyBird reflects entry start back to the dropdowns');
 
-  // Regression: clearing a time input (empty string, e.g. user backspaces the field)
-  // must not write NaN into state — the last valid value should be kept.
-  var entryStartAgain = document.getElementById('ebEntryStart');
-  entryStartAgain.value = '';
-  entryStartAgain.dispatchEvent(new Event('input', {bubbles:true}));
-  t.assertEqual(state.earlyBird.entryStartMin, 360, 'EB UI: clearing entry start time input does not write NaN into state');
+  document.getElementById('ebEnabled').checked = false;
+  document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
+  t.assertEqual(document.getElementById('ebFields').style.display, 'none', 'EB UI: fields hidden when disabled again');
+  t.assertEqual(state.earlyBird.entryStartMin, 360, 'EB UI: state preserved while fields are hidden');
+
+  document.getElementById('ebEnabled').checked = true;
+  document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
 });
 </script>
 
