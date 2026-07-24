@@ -566,7 +566,8 @@ function renderRateCard(card) {
     '<div class="ctl"><label>Start</label><input type="time" value="' + RateEngine.minutesToTimeString(card.startMin) + '" data-field="startMin"></div>' +
     '<div class="ctl"><label>End</label><input type="time" value="' + RateEngine.minutesToTimeString(card.endMin) + '" data-field="endMin"></div>' +
     '<div class="ctl"><label>Grace (min)</label><input type="number" value="' + card.graceMin + '" data-field="graceMin"></div>' +
-    '<button class="btnDanger" data-action="delete">Delete</button>';
+    '<button class="btnDanger" data-action="delete">Delete</button>' +
+    '<div class="ctl"><label>Copy to other days</label><button class="btnGhost" data-action="openCopy">Choose days...</button></div>';
   div.appendChild(nameRow);
 
   var dayRow = document.createElement('div');
@@ -614,6 +615,25 @@ function renderRateCard(card) {
   ladderRow.appendChild(addLadderBtn);
   div.appendChild(ladderRow);
 
+  var copyPanel = document.createElement('div');
+  copyPanel.className = 'row';
+  copyPanel.style.display = 'none';
+  copyPanel.dataset.role = 'copyPanel';
+  var copyBoxes = document.createElement('div');
+  copyBoxes.className = 'dayBoxes';
+  DAY_ORDER.forEach(function(dayIdx){
+    var lbl = document.createElement('label');
+    lbl.innerHTML = '<input type="checkbox" data-copy-day="' + dayIdx + '">' + DAY_LABELS[dayIdx];
+    copyBoxes.appendChild(lbl);
+  });
+  copyPanel.appendChild(copyBoxes);
+  var applyCopyBtn = document.createElement('button');
+  applyCopyBtn.className = 'btnPrimary';
+  applyCopyBtn.textContent = 'Create copy';
+  applyCopyBtn.dataset.action = 'applyCopy';
+  copyPanel.appendChild(applyCopyBtn);
+  div.appendChild(copyPanel);
+
   div.addEventListener('input', function(e){
     var field = e.target.dataset.field;
     if (field === 'startMin' || field === 'endMin') {
@@ -647,6 +667,21 @@ function renderRateCard(card) {
       if (e.target.dataset.preset === 'all') card.days = [true,true,true,true,true,true,true];
       if (e.target.dataset.preset === 'weekday') card.days = [false,true,true,true,true,true,false];
       if (e.target.dataset.preset === 'weekend') card.days = [true,false,false,false,false,false,true];
+      renderRateCards();
+    } else if (e.target.dataset.action === 'openCopy') {
+      var panel = div.querySelector('[data-role=copyPanel]');
+      panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+    } else if (e.target.dataset.action === 'applyCopy') {
+      var panel = div.querySelector('[data-role=copyPanel]');
+      var targetDays = [false,false,false,false,false,false,false];
+      panel.querySelectorAll('[data-copy-day]').forEach(function(cb){
+        if (cb.checked) targetDays[Number(cb.dataset.copyDay)] = true;
+      });
+      var copy = JSON.parse(JSON.stringify(card));
+      copy.id = 'rc' + (nextCardId++);
+      copy.name = card.name + ' (copy)';
+      copy.days = targetDays;
+      state.rateCards.push(copy);
       renderRateCards();
     }
   });
@@ -725,6 +760,44 @@ window.__engineTestCases.push(function(t){
   var nameInputAfterRender = cardDiv(0).querySelector('input[data-field="name"]');
   t.assertEqual(nameInputAfterRender.value, '"><img src=x>', 'renderRateCard: HTML-bearing name escapes safely and round-trips through the input value');
   t.assertEqual(document.querySelectorAll('#rateCardList img').length, 0, 'renderRateCard: HTML-bearing name does not inject a live element');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  state.rateCards = [];
+  renderRateCards();
+
+  document.getElementById('addCardBtn').click();
+  var cardDiv = document.querySelectorAll('#rateCardList .card')[0];
+
+  var nameInput = cardDiv.querySelector('input[data-field="name"]');
+  nameInput.value = 'Monday';
+  nameInput.dispatchEvent(new Event('input', {bubbles:true}));
+  var mondayCheckbox = cardDiv.querySelector('input[data-day="1"]');
+  mondayCheckbox.checked = true;
+  mondayCheckbox.dispatchEvent(new Event('input', {bubbles:true}));
+
+  var openCopyBtn = Array.prototype.slice.call(cardDiv.querySelectorAll('button')).find(function(b){ return b.dataset.action === 'openCopy'; });
+  openCopyBtn.click();
+
+  var panel = cardDiv.querySelector('[data-role=copyPanel]');
+  t.assertEqual(panel.style.display, 'flex', 'copy: openCopy toggles the panel visible');
+
+  ['2','3','4','5'].forEach(function(dayIdx){
+    var cb = panel.querySelector('input[data-copy-day="' + dayIdx + '"]');
+    cb.checked = true;
+  });
+
+  var applyCopyBtn = panel.querySelector('button[data-action="applyCopy"]');
+  applyCopyBtn.click();
+
+  t.assertEqual(state.rateCards.length, 2, 'copy: applyCopy creates a new card');
+  var copy = state.rateCards[1];
+  t.assertEqual(copy.name, 'Monday (copy)', 'copy: new card name is suffixed');
+  t.assertEqual(copy.days, [false,false,true,true,true,true,false], 'copy: new card has only the checked target days (Tue-Fri), not Monday');
+  t.assertEqual(state.rateCards[0].days, [false,true,false,false,false,false,false], 'copy: original card is unchanged (still only Monday)');
+  t.assertEqual(copy.id !== state.rateCards[0].id, true, 'copy: new card has a distinct id');
 });
 </script>
 
