@@ -96,6 +96,7 @@ body.night .switch::after{left:21px}
       <input type="file" id="fileInput" style="display:none" accept=".csv">
     </div>
   </div>
+  <button id="loadToCompareBtn" class="btnPrimary">Load to Compare</button>
 </div>
 <div id="comparePage" class="page">
   <h2>Compare</h2>
@@ -994,6 +995,7 @@ fileInput.addEventListener('change', function(e){
   handleFile(e.target.files[0]);
   e.target.value = ''; // allow re-selecting the same file (e.g. a corrected re-export) to fire change again
 });
+document.getElementById('loadToCompareBtn').addEventListener('click', function(){ runComparison(); });
 
 // applyVisitFileBuffer is the synchronous core (state update, status text,
 // triggering comparison) factored out of the async FileReader callback so it
@@ -1147,6 +1149,16 @@ window.__engineTestCases.push(function(t){
 
   var dropZoneEl = document.getElementById('dropZone');
   t.assertEqual(dropZoneEl.style.width, '150px', 'dropZone: renders at the fixed 150x150 size');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  var btn = document.getElementById('loadToCompareBtn');
+  t.assertEqual(!!btn, true, 'Load to Compare button exists');
+  state.compareResult = null;
+  btn.click();
+  t.assertEqual(state.compareResult !== null, state.visits.length > 0, 'Load to Compare triggers runComparison');
 });
 </script>
 
