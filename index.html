@@ -592,6 +592,36 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function partsFromMinutes(min) {
+  var h24 = Math.floor(min / 60), m = min % 60;
+  var ampm = h24 < 12 ? 'AM' : 'PM';
+  var h12 = h24 % 12; if (h12 === 0) h12 = 12;
+  return { hour: h12, minute: m, ampm: ampm };
+}
+function minutesFromParts(hour12, minute, ampm) {
+  var h = Number(hour12) % 12;
+  if (ampm === 'PM') h += 12;
+  return h * 60 + Number(minute);
+}
+function timeDropdownsHtml(min, fieldName) {
+  var p = partsFromMinutes(min);
+  var hourOpts = '';
+  for (var h = 1; h <= 12; h++) hourOpts += '<option value="' + h + '"' + (h === p.hour ? ' selected' : '') + '>' + h + '</option>';
+  var minOpts = [0, 15, 30, 45].map(function(mv){
+    return '<option value="' + mv + '"' + (mv === p.minute ? ' selected' : '') + '>' + (mv < 10 ? '0' + mv : mv) + '</option>';
+  }).join('');
+  var ampmOpts = ['AM', 'PM'].map(function(a){ return '<option value="' + a + '"' + (a === p.ampm ? ' selected' : '') + '>' + a + '</option>'; }).join('');
+  return '<select data-timefield="' + fieldName + '" data-timepart="hour">' + hourOpts + '</select>' +
+         '<select data-timefield="' + fieldName + '" data-timepart="minute">' + minOpts + '</select>' +
+         '<select data-timefield="' + fieldName + '" data-timepart="ampm">' + ampmOpts + '</select>';
+}
+function readTimeDropdowns(containerEl, fieldName) {
+  var hourSel = containerEl.querySelector('select[data-timefield="' + fieldName + '"][data-timepart="hour"]');
+  var minSel = containerEl.querySelector('select[data-timefield="' + fieldName + '"][data-timepart="minute"]');
+  var ampmSel = containerEl.querySelector('select[data-timefield="' + fieldName + '"][data-timepart="ampm"]');
+  return minutesFromParts(hourSel.value, minSel.value, ampmSel.value);
+}
+
 function renderRateCards() {
   var list = document.getElementById('rateCardList');
   list.innerHTML = '';
@@ -737,6 +767,18 @@ function renderRateCard(card) {
 document.getElementById('addCardBtn').addEventListener('click', function(){
   state.rateCards.push(newRateCard());
   renderRateCards();
+});
+</script>
+
+<script>
+window.__engineTestCases = window.__engineTestCases || [];
+window.__engineTestCases.push(function(t){
+  t.assertEqual(partsFromMinutes(0), { hour: 12, minute: 0, ampm: 'AM' }, 'partsFromMinutes: midnight is 12:00 AM');
+  t.assertEqual(partsFromMinutes(720), { hour: 12, minute: 0, ampm: 'PM' }, 'partsFromMinutes: noon is 12:00 PM');
+  t.assertEqual(partsFromMinutes(960), { hour: 4, minute: 0, ampm: 'PM' }, 'partsFromMinutes: 960 is 4:00 PM');
+  t.assertEqual(minutesFromParts(12, 0, 'AM'), 0, 'minutesFromParts: 12:00 AM is midnight');
+  t.assertEqual(minutesFromParts(4, 0, 'PM'), 960, 'minutesFromParts: 4:00 PM is 960');
+  t.assertEqual(minutesFromParts(12, 30, 'PM'), 750, 'minutesFromParts: 12:30 PM is 750');
 });
 </script>
 
