@@ -89,10 +89,29 @@ global controls, right-aligned:
 
 ## Rate Card (redesigned, per `Rate Table Section.png`)
 
-Each card represents **one duration band**:
+> **Correction (post-mockup-review with user):** an earlier draft of this
+> spec described "each band is its own rate card, grouped by sharing an
+> identical window." That's wrong. The mockup's real structure is: **one
+> card is one time-of-day *section*** (e.g. "Day" 6am-4pm, "Evening"
+> 4pm-6am, "Weekend" all-day flat) — Name, Start/End window, Days — and each
+> section holds its **own nested, dynamically-growable list of duration
+> bands** (`+ Add Next Rate`), each with its own Rate and a Max
+> Length/"Up to" cutoff. There is no cross-card band-group concept; a card
+> is self-contained. Confirmed with user: "A Rate Band is the length of stay
+> based on the time of day. Each special time of day needs its own
+> section... Weekend may not have different [bands] and be all one all-day
+> rate band." Each band has its own Rate field (confirmed) — the mockup's
+> single top "RATE" box was just Band 1's rate drawn inline, not a
+> card-wide flat price.
 
-- **Row 1:** `Name` (text) | `Rate` (number, $) — a single flat price,
-  replacing the entire ladder/tier table and its "+ Add Price Tier" button.
+Each card represents **one time-of-day section**, containing 1+ duration
+bands:
+
+- **Row 1:** `Name` (text) | a **"Delete"** button, top-right, orange
+  outline (`.btnDanger`) — absent on the first/default section card (there
+  must always be at least one, so it's not removable); present on any
+  section added afterward via "+ Add Rate Card." This is section-level
+  delete, distinct from the per-band delete below.
 - **Row 2:** `Start Time` label, then Hour/Min/AM-PM selects laid out
   left-to-right (fixing the vertical-stack bug — these need a horizontal
   flex row, not the column-flex `.ctl` wrapper used for label+single-input
@@ -102,49 +121,54 @@ Each card represents **one duration band**:
   - A read-only **"Next Day"** indicator appears next to End Time whenever
     `endMin < startMin` (i.e. the window crosses midnight) — auto-computed
     from the two times, not a separate field a user sets manually.
-- **Row 4:** Day-of-week checkboxes (Mon–Sun) + the existing preset buttons
+- **Row 4:** Day-of-week checkboxes (Mon-Sun) + the existing preset buttons
   (`All days`, `Weekday (Mon-Fri)`, `Weekend (Sat-Sun)`) — unchanged from
   today, kept as-is.
-- **No Grace Period field at all** — removed entirely (see above).
-- The "Up to" field is a normal, always-visible numeric input (minutes),
-  labeled clearly as "Up to (minutes)" instead of the confusing "Threshold
-  (min)." `newRateCard()` pre-fills it with `15` as a starting default (the
-  same number grace used to default to), but it's just an ordinary editable
-  field the user can change to anything — not a special first-band behavior.
-- **Delete button**: absent on the first/default rate card (there must
-  always be at least one, so it's not removable); present (orange outline,
-  same `.btnDanger` styling) on any card added afterward via "+ Add Rate
-  Card."
-- `newRateCard()` seeds `state.rateCards` with one default card on page load
-  — no more empty list requiring a click before any input is visible.
+- **Band rows** (one per entry in `card.bands`, always at least 1): each row
+  has a `Rate ($)` input and an `Up to (minutes)` input.
+  - Band 1 has no remove button (there must always be at least one band).
+  - Every band after the first gets a "Remove Rate" (X) button, same
+    `.btnDanger` styling as the section Delete button.
+  - An "Add Next Rate +" button (`.btnGhost`) below the last band row
+    appends a new band - the card grows dynamically, no fixed cap.
+  - `Up to (minutes)` defaults to `15` on a freshly-added band (same number
+    "grace" used to default to, per the already-resolved decision to drop
+    the separate grace-period concept - this is just an ordinary editable
+    field, not special first-band behavior). There is **no separate Grace
+    Period field anywhere** - see Global Settings above.
+- `newRateCard()` seeds `state.rateCards` with one default section card
+  (containing one default band) on page load - no more empty list requiring
+  a click before any input is visible.
 
-### Matching logic (band groups + day-boundary crossing)
+### Matching logic (day-boundary crossing + nested band selection)
 
 Given an entry timestamp:
 
-1. Find the set of rate cards whose `(days, startMin, endMin)` window
-   contains the entry time. This check must be **day-boundary aware**: for a
-   card with `endMin < startMin` (overnight), an entry falling in the
-   pre-dawn portion (`minutes < endMin`) matches if `card.days[previous day]`
-   is true — not `card.days[today]`, since the window was tagged to the
-   *previous* calendar day. An entry falling in the evening portion
-   (`minutes >= startMin`) still matches on `card.days[today]` as before.
-2. Among the matching cards (a band group — normally sharing an identical
-   window), sort by `upToMin` ascending.
+1. Find the **one** rate card (section) whose `(days, startMin, endMin)`
+   window contains the entry time. This check must be **day-boundary
+   aware**: for a card with `endMin < startMin` (overnight), an entry
+   falling in the pre-dawn portion (`minutes < endMin`) matches if
+   `card.days[previous day]` is true - not `card.days[today]`, since the
+   window was tagged to the *previous* calendar day. An entry falling in
+   the evening portion (`minutes >= startMin`) still matches on
+   `card.days[today]` as before. If more than one card's window covers the
+   same moment (a real authoring mistake, flagged red in the coverage
+   grid), first-match-wins by array order - same precedent as today's code.
+2. Within that card's `bands` array, sort by `upToMin` ascending.
 3. A visit matches a given band if:
-   `duration >= previousBand.upToMin (or 0, for the lowest band in the group)`
-   **and** `duration < thisBand.upToMin`. Every duration `>= 0` always lands
-   in some band — there's no separate "too short, excluded" gap. A lot that
-   wants an initial free period just adds its own `rate: 0` band with the
+   `duration >= previousBand.upToMin (or 0, for the first band)` **and**
+   `duration < thisBand.upToMin`. Every duration `>= 0` always lands in some
+   band - there's no separate "too short, excluded" gap. A section that
+   wants an initial free period just gives its first band `rate: 0` and the
    appropriate `upToMin`, same as any other band; nothing special-cased.
-4. The band with the highest `upToMin` in a group is open-ended — it also
-   catches any duration `>= its lower bound`, even beyond its own `upToMin`
-   value. This is how a single-card "evening flat rate" (one band, one high
-   `upToMin` like 1440) covers an entire overnight stay regardless of exact
+4. The band with the highest `upToMin` is open-ended - it also catches any
+   duration `>= its lower bound`, even beyond its own `upToMin` value. This
+   is how a single-band section (e.g. "Weekend" flat rate, one band, one
+   high `upToMin` like 1440) covers an entire stay regardless of exact
    length.
 
 No overlap-blocking validation is implemented in this pass (explicitly
-descoped — flagging via the coverage grid's red cells is enough for now).
+descoped - flagging via the coverage grid's red cells is enough for now).
 
 ## Compare Tab — Visual Polish
 
@@ -175,26 +199,26 @@ actually match the rest of the app and read cleanly at a glance:
 
 ## Engine Changes
 
-- `card.ladder` (array of `{thresholdMin, price}`) is replaced by two flat
-  fields: `card.rate` (number) and `card.upToMin` (number).
+- `card.ladder` (array of `{thresholdMin, price}`) is replaced by
+  `card.bands` (array of `{rate, upToMin}`, always length >= 1). `card.rate`
+  is NOT a card-level field — rate lives per-band.
 - `card.graceMin` and any grace-period concept is removed entirely — no
-  replacement global setting. The lowest band in a matched group implicitly
+  replacement global setting. The first band in `card.bands` implicitly
   starts at duration `0`.
-- `RateEngine.lookupLadderPrice` is replaced by the band-matching logic
-  described above (new function, e.g. `RateEngine.priceForBand` or similar —
-  exact naming decided at plan time), operating across the *set* of cards
-  in a matched window rather than one card's internal ladder array.
-- `RateEngine.findMatchingRateCard` gains day-boundary-aware matching
-  (checks the previous day for entries in an overnight card's pre-dawn
-  spillover), and now needs to return the **matched band group**, not a
-  single card, so the duration-based band selection (step 2–4 above) can run
-  within it.
+- `RateEngine.lookupLadderPrice` is replaced by `RateEngine.selectBand`
+  (exact naming decided at plan time), which sorts one card's `bands` by
+  `upToMin` and picks the covering band per the matching-logic steps above —
+  operating on a single card's nested band list, not a cross-card set.
+- `RateEngine.findMatchingRateCard` stays **singular** (returns one card,
+  not a group) but gains day-boundary-aware matching: checks the previous
+  day's flag for entries in an overnight card's pre-dawn spillover portion.
 - A new coverage/conflict-detection helper computes, per day+hour, how many
-  *distinct* windows (not band-group members) cover that cell — 0 → blank,
-  1 → green, 2+ → red — and a list of which named cards conflict where.
+  *distinct cards* (by id) cover that cell — 0 → blank, 1 → green, 2+ → red
+  — and a list of which named cards conflict where. No band-group dedup
+  logic is needed since bands no longer span cards.
 - `RateEngine.aggregateByBracket`, `computeDeltaPercents`, and `renderCompare`
   are unchanged — they already group by `bracketName` (the matched card's
-  `name`), which now naturally reflects band-level names.
+  `name`), which is the section name shared by all its bands.
 
 ## What's Unchanged
 

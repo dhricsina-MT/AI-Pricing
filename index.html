@@ -32,18 +32,39 @@ body.night .switch::after{left:21px}
 .card .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
 .ctl{display:flex;flex-direction:column;gap:4px}
 .ctl label{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700}
-.ctl input[type=text],.ctl input[type=number],.ctl input[type=time]{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:13px}
+.ctl input[type=text],.ctl input[type=number],.ctl input[type=time]{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:13px}
+.ctl input:disabled{background:var(--bg);color:var(--muted)}
+input[type=number]{-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .dayBoxes{display:flex;gap:6px}
 .dayBoxes label{display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--muted)}
+.coverageHeaderRow{display:flex;gap:4px;margin-bottom:4px}
+.coverageHeaderRow .dayLabel{width:36px;flex-shrink:0}
+.coverageHeaderCell{flex:1;font-size:10px;color:var(--muted);text-align:center}
 .coverageRow{display:flex;align-items:center;gap:4px;margin-bottom:2px}
 .coverageRow .dayLabel{width:36px;font-size:11px;color:var(--muted);flex-shrink:0}
-.coverageCell{width:16px;height:16px;border:1px solid var(--line);border-radius:2px}
+.coverageCell{flex:1;height:16px;border:1px solid var(--line);border-radius:2px}
 .coverageCell.covered{background:var(--teal);border-color:var(--teal)}
-.ladderTable{display:flex;gap:8px;flex-wrap:wrap}
-.ladderCol{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--bg)}
+.coverageCell.conflict{background:var(--orange);border-color:var(--orange)}
+select{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:13px;max-width:200px}
+.timeRow{display:flex;gap:6px;flex-direction:row}
+.cardHeaderRow{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
+.nextDayTag{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;align-self:flex-end;padding-bottom:8px}
+.bandWarning{color:var(--orange);font-size:11px;margin:-2px 0 6px 8px}
+.bandRow{display:flex;gap:12px;align-items:flex-end;margin-bottom:6px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
 .btnPrimary{background:var(--brand);color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600}
 .btnGhost{background:none;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;color:var(--muted);font-size:12px}
 .btnDanger{background:none;border:1px solid var(--orange);color:var(--orange);border-radius:8px;padding:4px 8px;cursor:pointer;font-size:12px}
+.statRow{display:flex;gap:12px;margin-bottom:14px}
+.statCard{flex:1 1 0;text-align:center}
+.statCard .statLabel{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin-bottom:4px}
+.statCard .statValue{font-size:20px;font-weight:700}
+.bracketName{font-size:15px;font-weight:700}
+.bracketMeta{color:var(--muted);font-size:13px;margin-top:2px}
+.dayRow{font-size:13px;padding:6px 8px;border-radius:6px;margin-top:6px}
+.dayRow.even{background:var(--surface)}
+.dayRow.odd{background:var(--bg)}
+.dayRowDetail{margin-top:4px;padding-left:12px;border-left:2px solid var(--line);font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -59,30 +80,29 @@ body.night .switch::after{left:21px}
 </header>
 <div id="setupPage" class="page active">
   <div class="card">
-    <div class="sub">Rate coverage (green = a rate card covers that hour; blank = no rate assigned &mdash; gaps are often intentional, e.g. closed hours)</div>
+    <div class="cardHeaderRow">
+      <div class="sub" style="margin:0">Rate coverage (green = one rate card covers that hour; red = two or more conflict; blank = no rate assigned &mdash; gaps are often intentional, e.g. closed hours)</div>
+      <label class="toggle" style="cursor:pointer"><input type="checkbox" id="ebEnabled"> Add Early Bird</label>
+    </div>
     <div id="coverageGrid"></div>
+    <div id="coverageConflicts" class="sub" style="margin:8px 0 0"></div>
+  </div>
+  <div class="card" id="ebCard" style="display:none">
+    <div class="row">
+      <div class="ctl"><label>Entry window start</label><div id="ebEntryStartGroup"></div></div>
+      <div class="ctl"><label>Entry window end</label><div id="ebEntryEndGroup"></div></div>
+      <div class="ctl"><label>Exit condition</label>
+        <select id="ebExitCondition"><option value="before">Exit Before</option><option value="after">Exit After</option></select>
+      </div>
+      <div class="ctl"><label>Exit time</label><div id="ebExitTimeGroup"></div></div>
+      <div class="ctl"><label>Price</label><input type="number" id="ebPrice"></div>
+    </div>
+    <div class="row" id="ebDayRow"><div class="dayBoxes" id="ebDayBoxes"></div></div>
   </div>
   <h2>Setup</h2>
   <p class="sub">Build your static rate table, then drop in a visit export below.</p>
   <div id="rateCardList"></div>
   <button id="addCardBtn" class="btnPrimary">+ Add Rate Card</button>
-  <div class="card" id="ebCard">
-    <div class="row">
-      <div class="ctl"><label>Early Bird</label>
-        <label><input type="checkbox" id="ebEnabled"> Enabled</label>
-      </div>
-      <div id="ebFields" style="display:contents">
-        <div class="ctl"><label>Entry window start</label><div id="ebEntryStartGroup"></div></div>
-        <div class="ctl"><label>Entry window end</label><div id="ebEntryEndGroup"></div></div>
-        <div class="ctl"><label>Exit condition</label>
-          <select id="ebExitCondition"><option value="before">Exit Before</option><option value="after">Exit After</option></select>
-        </div>
-        <div class="ctl"><label>Exit time</label><div id="ebExitTimeGroup"></div></div>
-        <div class="ctl"><label>Price</label><input type="number" id="ebPrice"></div>
-      </div>
-    </div>
-    <div class="row" id="ebDayRow"><div class="dayBoxes" id="ebDayBoxes"></div></div>
-  </div>
   <div class="card">
     <div class="row">
       <div class="ctl"><label>Reconciliation cutoff (hours)</label><input type="number" id="cutoffHours" value="24"></div>
@@ -203,13 +223,19 @@ RateEngine.findMatchingRateCard = function(rateCards, entryDate) {
   return null;
 };
 
-RateEngine.lookupLadderPrice = function(card, durationMin) {
-  if (durationMin <= card.graceMin) return 0;
-  var sorted = card.ladder.slice().sort(function(a, b){ return a.thresholdMin - b.thresholdMin; });
+RateEngine.selectBand = function(bands, durationMin) {
+  var sorted = bands.slice().sort(function(a, b){ return a.upToMin - b.upToMin; });
+  // Band 1's startingMin (when set) plays the old grace period's role: any
+  // duration shorter than it is free, before Band 1's own rate kicks in.
+  var floor = (bands.length && typeof bands[0].startingMin === 'number') ? bands[0].startingMin : 0;
+  if (durationMin < floor) return { rate: 0, upToMin: floor };
+  var lower = floor;
   for (var i = 0; i < sorted.length; i++) {
-    if (durationMin <= sorted[i].thresholdMin) return sorted[i].price;
+    var isLast = i === sorted.length - 1;
+    if (durationMin >= lower && (durationMin < sorted[i].upToMin || isLast)) return sorted[i];
+    lower = sorted[i].upToMin;
   }
-  return sorted.length ? sorted[sorted.length - 1].price : 0;
+  return null;
 };
 
 RateEngine.checkEarlyBird = function(earlyBird, entryDate, exitDate) {
@@ -253,7 +279,7 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
   } else {
     var card = RateEngine.findMatchingRateCard(rateCards, entryDate);
     if (!card) return { excluded: 'no_matching_rate_card', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
-    staticPrice = RateEngine.lookupLadderPrice(card, durationMin);
+    staticPrice = RateEngine.selectBand(card.bands, durationMin).rate;
     bracketName = card.name || 'Unnamed';
   }
 
@@ -366,6 +392,31 @@ RateEngine.aggregateByBracket = function(processedVisits) {
 
   return { brackets: bracketList, totals: totals, excluded: excluded };
 };
+
+RateEngine.computeCoverageGrid = function(rateCards) {
+  var grid = [];
+  for (var day = 0; day < 7; day++) {
+    var prevDay = (day + 6) % 7;
+    var row = [];
+    for (var hour = 0; hour < 24; hour++) {
+      var minute = hour * 60;
+      var covering = rateCards.filter(function(card){
+        // A card whose bands all still have a blank/null rate hasn't been
+        // priced yet — don't color the grid until the user enters a rate,
+        // even though its time window and days are fully configured.
+        var hasEnteredRate = card.bands.some(function(b){ return b.rate !== null && b.rate !== undefined; });
+        if (!hasEnteredRate) return false;
+        if (card.startMin < card.endMin) {
+          return card.days[day] && minute >= card.startMin && minute < card.endMin;
+        }
+        return (minute >= card.startMin && card.days[day]) || (minute < card.endMin && card.days[prevDay]);
+      });
+      row.push({ count: covering.length, names: covering.map(function(c){ return c.name || 'Unnamed'; }) });
+    }
+    grid.push(row);
+  }
+  return grid;
+};
 </script>
 
 <script>
@@ -456,26 +507,36 @@ window.__engineTestCases.push(function(t){
 
 <script>
 window.__engineTestCases.push(function(t){
-  var card = {
-    graceMin: 15,
-    ladder: [
-      { thresholdMin: 60, price: 5 },
-      { thresholdMin: 120, price: 10 },
-      { thresholdMin: 180, price: 15 },
-      { thresholdMin: 720, price: 20 },
-      { thresholdMin: 1440, price: 25 }
-    ]
-  };
-  t.assertEqual(RateEngine.lookupLadderPrice(card, 10), 0, 'lookupLadderPrice: within grace is free');
-  t.assertEqual(RateEngine.lookupLadderPrice(card, 15), 0, 'lookupLadderPrice: exactly at grace is free');
-  t.assertEqual(RateEngine.lookupLadderPrice(card, 16), 5, 'lookupLadderPrice: just past grace uses first tier');
-  t.assertEqual(RateEngine.lookupLadderPrice(card, 60), 5, 'lookupLadderPrice: exactly at first tier threshold');
-  t.assertEqual(RateEngine.lookupLadderPrice(card, 90), 10, 'lookupLadderPrice: between tiers rounds up to next tier');
-  t.assertEqual(RateEngine.lookupLadderPrice(card, 1440), 25, 'lookupLadderPrice: exactly at last tier');
-  t.assertEqual(RateEngine.lookupLadderPrice(card, 3000), 25, 'lookupLadderPrice: beyond last tier uses ceiling price');
+  // Mirrors the real reference example (Lev_AI_Review.xlsx): a free/low first
+  // band up to 15 min, then 15-60, 60-120, and an open-ended 120-1440 band.
+  var bands = [
+    { rate: 0, upToMin: 15 },
+    { rate: 5, upToMin: 60 },
+    { rate: 10, upToMin: 120 },
+    { rate: 15, upToMin: 1440 }
+  ];
+  t.assertEqual(RateEngine.selectBand(bands, 10).rate, 0, 'selectBand: within first band (0-15) is free');
+  t.assertEqual(RateEngine.selectBand(bands, 15).rate, 5, 'selectBand: exactly at a boundary lands in the next band (half-open upper bound)');
+  t.assertEqual(RateEngine.selectBand(bands, 45).rate, 5, 'selectBand: mid-band (15-60) uses that band\'s rate');
+  t.assertEqual(RateEngine.selectBand(bands, 90).rate, 10, 'selectBand: mid-band (60-120) uses that band\'s rate');
+  t.assertEqual(RateEngine.selectBand(bands, 1440).rate, 15, 'selectBand: exactly at the last band\'s upToMin still matches (open-ended catch-all)');
+  t.assertEqual(RateEngine.selectBand(bands, 5000).rate, 15, 'selectBand: far beyond the last upToMin still uses the open-ended last band');
 
-  var emptyLadderCard = { graceMin: 15, ladder: [] };
-  t.assertEqual(RateEngine.lookupLadderPrice(emptyLadderCard, 100), 0, 'lookupLadderPrice: empty ladder returns 0');
+  var singleBand = [{ rate: 8, upToMin: 1440 }];
+  t.assertEqual(RateEngine.selectBand(singleBand, 5).rate, 8, 'selectBand: single-band section (e.g. Weekend flat rate) covers any duration from 0');
+  t.assertEqual(RateEngine.selectBand(singleBand, 3000).rate, 8, 'selectBand: single-band section is open-ended for very long stays too');
+
+  t.assertEqual(RateEngine.selectBand([], 100), null, 'selectBand: empty bands array returns null');
+
+  var unsorted = [{ rate: 15, upToMin: 1440 }, { rate: 0, upToMin: 15 }, { rate: 10, upToMin: 120 }, { rate: 5, upToMin: 60 }];
+  t.assertEqual(RateEngine.selectBand(unsorted, 90).rate, 10, 'selectBand: sorts bands by upToMin internally regardless of input order');
+
+  // Band 1's startingMin plays the old grace period's role: anything shorter is free.
+  var withStarting = [{ rate: 5, startingMin: 15, upToMin: 60 }, { rate: 10, upToMin: 120 }];
+  t.assertEqual(RateEngine.selectBand(withStarting, 10).rate, 0, 'selectBand: duration below Band 1\'s startingMin is free ($0)');
+  t.assertEqual(RateEngine.selectBand(withStarting, 15).rate, 5, 'selectBand: duration exactly at startingMin uses Band 1\'s rate');
+  t.assertEqual(RateEngine.selectBand(withStarting, 45).rate, 5, 'selectBand: duration between startingMin and Band 1\'s upToMin uses Band 1\'s rate');
+  t.assertEqual(RateEngine.selectBand(withStarting, 90).rate, 10, 'selectBand: duration past Band 1\'s upToMin still lands in the next band as usual');
 });
 </script>
 
@@ -521,8 +582,8 @@ window.__engineTestCases.push(function(t){
 <script>
 window.__engineTestCases.push(function(t){
   var rateCards = [
-    { id: 'day', name: 'Weekday Day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960, graceMin: 15,
-      ladder: [{thresholdMin:60,price:5},{thresholdMin:120,price:10},{thresholdMin:180,price:15},{thresholdMin:720,price:20},{thresholdMin:1440,price:25}] }
+    { id: 'day', name: 'Weekday Day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960,
+      bands: [{rate:0,upToMin:15},{rate:5,upToMin:60},{rate:10,upToMin:120},{rate:15,upToMin:180},{rate:20,upToMin:720},{rate:25,upToMin:1440}] }
   ];
   var noEb = { enabled: false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 };
 
@@ -538,7 +599,7 @@ window.__engineTestCases.push(function(t){
 
   var v1 = RateEngine.processVisit(row({}), rateCards, noEb, 24);
   t.assertEqual(v1.excluded, null, 'processVisit: normal visit not excluded');
-  t.assertEqual(v1.staticPrice, 10, 'processVisit: static price from duration ladder');
+  t.assertEqual(v1.staticPrice, 10, 'processVisit: static price from duration band');
   t.assertEqual(v1.actualPrice, 13.78, 'processVisit: actual price from Price Amt');
   t.assertEqual(v1.bracketName, 'Weekday Day', 'processVisit: bracket name from matched card');
   t.assertEqual(v1.isValidated, false, 'processVisit: Transient is not validated');
@@ -559,7 +620,7 @@ window.__engineTestCases.push(function(t){
 
   var eb = { enabled: true, days:[false,true,true,true,true,true,false], entryStartMin:360, entryEndMin:540, exitCondition:'after', exitMin:960, price: 3 };
   var v6 = RateEngine.processVisit(row({'Visit Start At': '07:00:00 AM', 'Visit Exit  Event At': '05:00:00 PM'}), rateCards, eb, 24);
-  t.assertEqual(v6.staticPrice, 3, 'processVisit: Early Bird overrides duration ladder');
+  t.assertEqual(v6.staticPrice, 3, 'processVisit: Early Bird overrides duration band pricing');
   t.assertEqual(v6.bracketName, 'Early Bird', 'processVisit: Early Bird sets its own bracket name');
 
   var v7 = RateEngine.processVisit(row({'Visit Coverage Type': 'Some Unrecognized Value'}), rateCards, noEb, 24);
@@ -618,6 +679,46 @@ window.__engineTestCases.push(function(t){
 </script>
 
 <script>
+window.__engineTestCases.push(function(t){
+  var cards = [
+    { id:'day', name:'Weekday Day', days:[false,true,true,true,true,true,false], startMin:240, endMin:960, bands:[{rate:5,upToMin:1440}] },
+    { id:'weekend', name:'Weekend', days:[true,false,false,false,false,false,true], startMin:0, endMin:1440, bands:[{rate:8,upToMin:1440}] }
+  ];
+  var grid = RateEngine.computeCoverageGrid(cards);
+  t.assertEqual(grid.length, 7, 'computeCoverageGrid: one row per day (0-6, Date.getDay indexing)');
+  t.assertEqual(grid[0].length, 24, 'computeCoverageGrid: 24 hourly cells per day');
+  t.assertEqual(grid[1][5].count, 1, 'computeCoverageGrid: Monday 5am covered by one card (Weekday Day)');
+  t.assertEqual(grid[1][5].names, ['Weekday Day'], 'computeCoverageGrid: names list identifies the covering card');
+  t.assertEqual(grid[1][20].count, 0, 'computeCoverageGrid: Monday 8pm is blank (no card covers it)');
+  t.assertEqual(grid[0][12].count, 1, 'computeCoverageGrid: Sunday noon covered by the Weekend card');
+
+  // A card with no rate entered yet (band rate still null) must NOT color the grid,
+  // even though its time window/days are fully configured.
+  var noRateYet = [{ id:'draft', name:'Draft', days:[false,true,true,true,true,true,false], startMin:240, endMin:960, bands:[{rate:null,upToMin:15}] }];
+  var noRateGrid = RateEngine.computeCoverageGrid(noRateYet);
+  t.assertEqual(noRateGrid[1][5].count, 0, 'computeCoverageGrid: a card with no entered rate does not count as covering, even within its time window');
+
+  var partiallyEntered = [{ id:'partial', name:'Partial', days:[false,true,true,true,true,true,false], startMin:240, endMin:960, bands:[{rate:null,upToMin:15},{rate:5,upToMin:1440}] }];
+  var partialGrid = RateEngine.computeCoverageGrid(partiallyEntered);
+  t.assertEqual(partialGrid[1][5].count, 1, 'computeCoverageGrid: a card with at least one entered-rate band still counts as covering');
+
+  var overlapping = [
+    { id:'a', name:'Card A', days:[false,true,false,false,false,false,false], startMin:0, endMin:1439, bands:[{rate:1,upToMin:1440}] },
+    { id:'b', name:'Card B', days:[false,true,false,false,false,false,false], startMin:600, endMin:720, bands:[{rate:2,upToMin:1440}] }
+  ];
+  var conflictGrid = RateEngine.computeCoverageGrid(overlapping);
+  t.assertEqual(conflictGrid[1][10].count, 2, 'computeCoverageGrid: two overlapping cards produce a conflict count of 2');
+  t.assertEqual(conflictGrid[1][10].names, ['Card A', 'Card B'], 'computeCoverageGrid: conflict cell lists both card names');
+
+  var overnight = [{ id:'ev', name:'Evening', days:[false,true,false,false,false,false,false], startMin:1080, endMin:60, bands:[{rate:5,upToMin:1440}] }];
+  var overnightGrid = RateEngine.computeCoverageGrid(overnight);
+  t.assertEqual(overnightGrid[1][19].count, 1, 'computeCoverageGrid: overnight card covers 7pm on its tagged Monday');
+  t.assertEqual(overnightGrid[2][0].count, 1, 'computeCoverageGrid: overnight spillover covers the midnight hour on the NEXT day (Tuesday), day-boundary aware');
+  t.assertEqual(overnightGrid[2][2].count, 0, 'computeCoverageGrid: overnight spillover ends at endMin, the hour past it is blank');
+});
+</script>
+
+<script>
 var state = {
   rateCards: [],
   earlyBird: { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 },
@@ -631,11 +732,33 @@ var nextCardId = 1;
 var DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun display order, values index into card.days (0=Sun..6=Sat, matches Date.getDay())
 var DAY_LABELS = { 1:'Mon', 2:'Tue', 3:'Wed', 4:'Thu', 5:'Fri', 6:'Sat', 0:'Sun' };
 
+function newBand() {
+  return { rate: null, upToMin: 60 };
+}
 function newRateCard() {
   // endMin: 1439 (23:59), not 1440 — <input type="time"> can't represent "24:00"
   // (it would render blank), and the reference rate model (Lev_AI_Review.xlsx)
   // itself encodes "end of day" as 23:59:xx rather than exact midnight.
-  return { id: 'rc' + (nextCardId++), name: '', days: [false,false,false,false,false,false,false], startMin: 0, endMin: 1439, graceMin: 15, ladder: [{ thresholdMin: 60, price: 0 }] };
+  // The first band's startingMin (default 15) is the only editable Starting
+  // (min) value — it plays the old grace period's role (anything shorter is
+  // free) — every band after it auto-derives its Starting from the previous
+  // band's Up to (minutes) and is never directly editable.
+  return { id: 'rc' + (nextCardId++), name: '', days: [false,false,false,false,false,false,false], startMin: 0, endMin: 1439, bands: [{ rate: null, startingMin: 15, upToMin: 60 }] };
+}
+
+function bandEffectiveStart(card, bandIdx) {
+  return bandIdx === 0 ? card.bands[0].startingMin : card.bands[bandIdx - 1].upToMin;
+}
+function bandWarningText(card, bandIdx) {
+  var start = bandEffectiveStart(card, bandIdx);
+  var remaining = Math.max(0, 1440 - start);
+  if (card.bands[bandIdx].upToMin > 1440) return 'Only ' + remaining + ' minutes left in the day';
+  return '';
+}
+function refreshBandWarning(container, card, bandIdx) {
+  if (bandIdx >= card.bands.length) return;
+  var el = container.querySelector('[data-band-warning="' + bandIdx + '"]');
+  if (el) el.textContent = bandWarningText(card, bandIdx);
 }
 
 function escapeHtml(str) {
@@ -657,13 +780,15 @@ function timeDropdownsHtml(min, fieldName) {
   var p = partsFromMinutes(min);
   var hourOpts = '';
   for (var h = 1; h <= 12; h++) hourOpts += '<option value="' + h + '"' + (h === p.hour ? ' selected' : '') + '>' + h + '</option>';
-  var minOpts = [0, 15, 30, 45].map(function(mv){
+  var minOpts = [0, 15, 30, 45, 59].map(function(mv){
     return '<option value="' + mv + '"' + (mv === p.minute ? ' selected' : '') + '>' + (mv < 10 ? '0' + mv : mv) + '</option>';
   }).join('');
   var ampmOpts = ['AM', 'PM'].map(function(a){ return '<option value="' + a + '"' + (a === p.ampm ? ' selected' : '') + '>' + a + '</option>'; }).join('');
-  return '<select data-timefield="' + fieldName + '" data-timepart="hour">' + hourOpts + '</select>' +
+  return '<div class="timeRow">' +
+         '<select data-timefield="' + fieldName + '" data-timepart="hour">' + hourOpts + '</select>' +
          '<select data-timefield="' + fieldName + '" data-timepart="minute">' + minOpts + '</select>' +
-         '<select data-timefield="' + fieldName + '" data-timepart="ampm">' + ampmOpts + '</select>';
+         '<select data-timefield="' + fieldName + '" data-timepart="ampm">' + ampmOpts + '</select>' +
+         '</div>';
 }
 function readTimeDropdowns(containerEl, fieldName) {
   var hourSel = containerEl.querySelector('select[data-timefield="' + fieldName + '"][data-timepart="hour"]');
@@ -675,48 +800,90 @@ function readTimeDropdowns(containerEl, fieldName) {
 function renderRateCards() {
   var list = document.getElementById('rateCardList');
   list.innerHTML = '';
-  state.rateCards.forEach(function(card){
-    list.appendChild(renderRateCard(card));
+  state.rateCards.forEach(function(card, index){
+    list.appendChild(renderRateCard(card, index));
   });
   renderCoverageGrid();
 }
 
-function isHourCovered(rateCards, dayIdx, hour) {
-  var minute = hour * 60;
-  for (var i = 0; i < rateCards.length; i++) {
-    var card = rateCards[i];
-    if (card.days[dayIdx] && RateEngine.withinRange(minute, card.startMin, card.endMin)) return true;
-  }
-  return false;
+function hourLabel(hour) {
+  var h = hour % 24;
+  var h12 = h % 12; if (h12 === 0) h12 = 12;
+  return h12 + (h < 12 ? 'a' : 'p');
+}
+function joinNames(names) {
+  var unique = names.filter(function(n, i){ return names.indexOf(n) === i; });
+  if (unique.length === 1) return unique[0];
+  if (unique.length === 2) return unique[0] + ' and ' + unique[1];
+  return unique.slice(0, -1).join(', ') + ' and ' + unique[unique.length - 1];
+}
+function summarizeConflicts(grid) {
+  var lines = [];
+  DAY_ORDER.forEach(function(dayIdx){
+    var row = grid[dayIdx];
+    var runStart = null, runKey = null, runNames = null;
+    for (var hour = 0; hour <= 24; hour++) {
+      var cell = hour < 24 ? row[hour] : null;
+      var key = cell && cell.count >= 2 ? cell.names.slice().sort().join('|') : null;
+      if (key !== runKey) {
+        if (runKey !== null) {
+          var unique = runNames.filter(function(n, i){ return runNames.indexOf(n) === i; });
+          var verb = unique.length > 2 ? ' all cover ' : ' both cover ';
+          lines.push(joinNames(runNames) + verb + DAY_LABELS[dayIdx] + ' ' + hourLabel(runStart) + 'm-' + hourLabel(hour) + 'm');
+        }
+        runStart = hour; runKey = key; runNames = cell ? cell.names : null;
+      }
+    }
+  });
+  return lines;
 }
 function renderCoverageGrid() {
   var el = document.getElementById('coverageGrid');
   el.innerHTML = '';
+
+  var headerRow = document.createElement('div');
+  headerRow.className = 'coverageHeaderRow';
+  headerRow.innerHTML = '<div class="dayLabel"></div>';
+  for (var hour = 0; hour < 24; hour++) {
+    headerRow.innerHTML += '<div class="coverageHeaderCell">' + hourLabel(hour) + '</div>';
+  }
+  el.appendChild(headerRow);
+
+  var grid = RateEngine.computeCoverageGrid(state.rateCards);
   DAY_ORDER.forEach(function(dayIdx){
     var row = document.createElement('div');
     row.className = 'coverageRow';
     row.innerHTML = '<div class="dayLabel">' + DAY_LABELS[dayIdx] + '</div>';
-    for (var hour = 0; hour < 24; hour++) {
-      var covered = isHourCovered(state.rateCards, dayIdx, hour);
-      row.innerHTML += '<div class="coverageCell' + (covered ? ' covered' : '') + '"></div>';
-    }
+    grid[dayIdx].forEach(function(cell){
+      var cls = 'coverageCell' + (cell.count === 1 ? ' covered' : cell.count >= 2 ? ' conflict' : '');
+      row.innerHTML += '<div class="' + cls + '"></div>';
+    });
     el.appendChild(row);
   });
+
+  var conflictLines = summarizeConflicts(grid);
+  document.getElementById('coverageConflicts').innerHTML = conflictLines.map(function(l){ return '<div>' + escapeHtml(l) + '</div>'; }).join('');
 }
 
-function renderRateCard(card) {
+function renderRateCard(card, index) {
   var div = document.createElement('div');
   div.className = 'card';
 
-  var nameRow = document.createElement('div');
-  nameRow.className = 'row';
-  nameRow.innerHTML =
-    '<div class="ctl"><label>Name</label><input type="text" value="' + escapeHtml(card.name) + '" data-field="name"></div>' +
-    '<div class="ctl"><label>Start</label>' + timeDropdownsHtml(card.startMin, 'startMin') + '</div>' +
-    '<div class="ctl"><label>End</label>' + timeDropdownsHtml(card.endMin, 'endMin') + '</div>' +
-    '<div class="ctl"><label>Grace (min)</label><input type="number" value="' + card.graceMin + '" data-field="graceMin"></div>' +
-    '<button class="btnDanger" data-action="delete">Delete</button>';
-  div.appendChild(nameRow);
+  var headerRow = document.createElement('div');
+  headerRow.className = 'cardHeaderRow';
+  headerRow.innerHTML =
+    '<div class="ctl"><label>Name</label><input type="text" style="width:120px" value="' + escapeHtml(card.name) + '" data-field="name"></div>' +
+    (index > 0 ? '<button class="btnDanger" data-action="delete">Delete</button>' : '');
+  div.appendChild(headerRow);
+
+  var timeRow = document.createElement('div');
+  timeRow.className = 'row';
+  var isOvernight = card.endMin < card.startMin;
+  timeRow.innerHTML =
+    '<div class="ctl"><label>Start Time</label>' + timeDropdownsHtml(card.startMin, 'startMin') + '</div>' +
+    '<div class="ctl" style="margin-left:20px"><label>End Time</label>' + timeDropdownsHtml(card.endMin, 'endMin') + '</div>' +
+    (isOvernight ? '<div class="nextDayTag">Next Day</div>' : '');
+  div.appendChild(timeRow);
 
   var dayRow = document.createElement('div');
   dayRow.className = 'row';
@@ -742,44 +909,79 @@ function renderRateCard(card) {
   });
   div.appendChild(dayRow);
 
-  var ladderRow = document.createElement('div');
-  ladderRow.className = 'row';
-  var ladderTable = document.createElement('div');
-  ladderTable.className = 'ladderTable';
-  card.ladder.forEach(function(tier, idx){
-    var col = document.createElement('div');
-    col.className = 'ladderCol';
-    col.innerHTML =
-      '<label>Threshold (min)</label><input type="number" value="' + tier.thresholdMin + '" data-ladder-idx="' + idx + '" data-ladder-field="thresholdMin">' +
-      '<label>Price ($)</label><input type="number" value="' + tier.price + '" data-ladder-idx="' + idx + '" data-ladder-field="price">' +
-      '<button class="btnDanger" data-ladder-remove="' + idx + '">x</button>';
-    ladderTable.appendChild(col);
+  var bandsWrap = document.createElement('div');
+  card.bands.forEach(function(band, bandIdx){
+    var wrapper = document.createElement('div');
+    var row = document.createElement('div');
+    row.className = 'bandRow';
+    var startingHtml = bandIdx === 0
+      ? '<input type="number" value="' + band.startingMin + '" data-band-idx="0" data-band-field="startingMin">'
+      : '<input type="number" value="' + card.bands[bandIdx - 1].upToMin + '" disabled>';
+    row.innerHTML =
+      '<div class="ctl"><label>Rate ($)</label><input type="number" placeholder="Enter rate" value="' + (band.rate === null ? '' : band.rate) + '" data-band-idx="' + bandIdx + '" data-band-field="rate"></div>' +
+      '<div class="ctl"><label>Starting (min)</label>' + startingHtml + '</div>' +
+      '<div class="ctl"><label>Up to (minutes)</label><input type="number" value="' + band.upToMin + '" data-band-idx="' + bandIdx + '" data-band-field="upToMin"></div>' +
+      (bandIdx > 0 ? '<button class="btnDanger" data-band-remove="' + bandIdx + '">Remove Rate</button>' : '');
+    wrapper.appendChild(row);
+    var warningEl = document.createElement('div');
+    warningEl.className = 'bandWarning';
+    warningEl.dataset.bandWarning = bandIdx;
+    warningEl.textContent = bandWarningText(card, bandIdx);
+    wrapper.appendChild(warningEl);
+    bandsWrap.appendChild(wrapper);
   });
-  ladderRow.appendChild(ladderTable);
-  var addLadderBtn = document.createElement('button');
-  addLadderBtn.className = 'btnGhost';
-  addLadderBtn.textContent = '+ Add Price Tier';
-  addLadderBtn.dataset.action = 'addTier';
-  ladderRow.appendChild(addLadderBtn);
-  div.appendChild(ladderRow);
+  div.appendChild(bandsWrap);
+
+  var addBandBtn = document.createElement('button');
+  addBandBtn.className = 'btnGhost';
+  addBandBtn.textContent = '+ Add Next Rate';
+  addBandBtn.dataset.action = 'addBand';
+  div.appendChild(addBandBtn);
 
   div.addEventListener('input', function(e){
     var field = e.target.dataset.field;
-    if (field === 'graceMin') {
-      card[field] = Number(e.target.value);
-    } else if (field) {
-      card[field] = e.target.value;
-    }
+    if (field) card[field] = e.target.value;
     if (e.target.dataset.timefield) {
       card[e.target.dataset.timefield] = readTimeDropdowns(div, e.target.dataset.timefield);
+      renderRateCards();
     }
     if (e.target.dataset.day !== undefined) {
       card.days[Number(e.target.dataset.day)] = e.target.checked;
+      renderRateCards();
     }
-    if (e.target.dataset.ladderIdx !== undefined) {
-      var idx = Number(e.target.dataset.ladderIdx);
-      var lf = e.target.dataset.ladderField;
-      card.ladder[idx][lf] = Number(e.target.value);
+    if (e.target.dataset.bandIdx !== undefined) {
+      var bandIdx = Number(e.target.dataset.bandIdx);
+      var bandField = e.target.dataset.bandField;
+      if (bandField === 'rate') {
+        // An emptied Rate field means "not entered yet," not $0 — keep it
+        // null so the coverage grid knows to leave this card uncolored.
+        card.bands[bandIdx].rate = e.target.value === '' ? null : Number(e.target.value);
+        // Only refresh the grid (not the whole card list) so typing a
+        // multi-digit rate doesn't steal focus after every keystroke.
+        renderCoverageGrid();
+      } else if (bandField === 'startingMin') {
+        // Only Band 1's Starting (min) is ever editable, and nothing else
+        // derives its displayed value from it, so no re-render is needed —
+        // just recheck Band 1's own "minutes left in the day" warning.
+        card.bands[bandIdx].startingMin = Number(e.target.value);
+        refreshBandWarning(div, card, bandIdx);
+      } else {
+        card.bands[bandIdx][bandField] = Number(e.target.value);
+        // Up to (minutes) feeds the NEXT band's read-only Starting (min)
+        // cell. Poke that one field directly instead of re-rendering the
+        // whole card — a full re-render would destroy and recreate the
+        // input the user is actively typing in, kicking focus out after
+        // every keystroke.
+        var nextBandRow = div.querySelectorAll('.bandRow')[bandIdx + 1];
+        if (nextBandRow) {
+          var nextStartingInput = nextBandRow.querySelector('.ctl:nth-child(2) input');
+          if (nextStartingInput) nextStartingInput.value = card.bands[bandIdx].upToMin;
+        }
+        // This band's own "minutes left" depends on its own Up to value,
+        // and the NEXT band's depends on it too (its Starting == this Up to).
+        refreshBandWarning(div, card, bandIdx);
+        refreshBandWarning(div, card, bandIdx + 1);
+      }
     }
   });
 
@@ -787,11 +989,11 @@ function renderRateCard(card) {
     if (e.target.dataset.action === 'delete') {
       state.rateCards = state.rateCards.filter(function(c){ return c.id !== card.id; });
       renderRateCards();
-    } else if (e.target.dataset.action === 'addTier') {
-      card.ladder.push({ thresholdMin: 60, price: 0 });
+    } else if (e.target.dataset.action === 'addBand') {
+      card.bands.push(newBand());
       renderRateCards();
-    } else if (e.target.dataset.ladderRemove !== undefined) {
-      card.ladder.splice(Number(e.target.dataset.ladderRemove), 1);
+    } else if (e.target.dataset.bandRemove !== undefined) {
+      card.bands.splice(Number(e.target.dataset.bandRemove), 1);
       renderRateCards();
     } else if (e.target.dataset.preset) {
       if (e.target.dataset.preset === 'all') card.days = [true,true,true,true,true,true,true];
@@ -808,7 +1010,8 @@ document.getElementById('addCardBtn').addEventListener('click', function(){
   state.rateCards.push(newRateCard());
   renderRateCards();
 });
-renderCoverageGrid();
+state.rateCards.push(newRateCard());
+renderRateCards();
 </script>
 
 <script>
@@ -825,14 +1028,34 @@ window.__engineTestCases.push(function(t){
 
 <script>
 window.__engineTestCases.push(function(t){
-  state.rateCards = [{ id:'c1', name:'Day', days:[false,true,false,false,false,false,false], startMin:240, endMin:960, graceMin:15, ladder:[{thresholdMin:60,price:5}] }];
+  state.rateCards = [{ id:'c1', name:'Day', days:[false,true,false,false,false,false,false], startMin:240, endMin:960, bands:[{rate:5,upToMin:60}] }];
   renderRateCards();
-  t.assertEqual(isHourCovered(state.rateCards, 1, 5), true, 'coverage: hour 5am on Monday is covered (4am-4pm card)');
-  t.assertEqual(isHourCovered(state.rateCards, 1, 20), false, 'coverage: hour 8pm on Monday is not covered');
-  t.assertEqual(isHourCovered(state.rateCards, 2, 5), false, 'coverage: Tuesday is not covered by a Monday-only card');
-  var mondayRow = document.querySelectorAll('#coverageGrid .coverageRow')[0];
+  var grid = RateEngine.computeCoverageGrid(state.rateCards);
+  t.assertEqual(grid[1][5].count, 1, 'coverage: hour 5am on Monday is covered (4am-4pm card)');
+  t.assertEqual(grid[1][20].count, 0, 'coverage: hour 8pm on Monday is not covered');
+  t.assertEqual(grid[2][5].count, 0, 'coverage: Tuesday is not covered by a Monday-only card');
+
+  var mondayRow = document.querySelectorAll('#coverageGrid .coverageRow')[1];
   var coveredCells = mondayRow.querySelectorAll('.coverageCell.covered');
-  t.assertEqual(coveredCells.length, 12, 'coverage: Monday row shows 12 covered hours (4am-4pm)');
+  t.assertEqual(coveredCells.length, 12, 'coverage: Monday row shows 12 green (single-coverage) hours (4am-4pm)');
+
+  var headerCells = document.querySelectorAll('#coverageGrid .coverageHeaderCell');
+  t.assertEqual(headerCells.length, 24, 'coverage: 24 hour-label header cells rendered above the grid');
+  t.assertEqual(headerCells[0].textContent, '12a', 'coverage: header hour 0 is labeled 12a');
+  t.assertEqual(headerCells[13].textContent, '1p', 'coverage: header hour 13 is labeled 1p');
+
+  state.rateCards = [
+    { id:'a', name:'Card A', days:[false,true,false,false,false,false,false], startMin:0, endMin:1439, bands:[{rate:1,upToMin:1440}] },
+    { id:'b', name:'Card B', days:[false,true,false,false,false,false,false], startMin:600, endMin:720, bands:[{rate:1,upToMin:1440}] }
+  ];
+  renderRateCards();
+  var mondayRowConflict = document.querySelectorAll('#coverageGrid .coverageRow')[1];
+  var conflictCells = mondayRowConflict.querySelectorAll('.coverageCell.conflict');
+  t.assertEqual(conflictCells.length, 2, 'coverage: the 2 overlapping hours (10am-12pm) render as conflict (red) cells');
+
+  var conflictText = document.getElementById('coverageConflicts').textContent;
+  t.assertEqual(conflictText.indexOf('Card A') > -1 && conflictText.indexOf('Card B') > -1, true, 'coverage: conflict summary line names both overlapping cards');
+  t.assertEqual(conflictText.indexOf('Mon') > -1, true, 'coverage: conflict summary line names the day');
 });
 </script>
 
@@ -872,33 +1095,64 @@ window.__engineTestCases.push(function(t){
   weekendBtn.click();
   t.assertEqual(state.rateCards[0].days, [true,false,false,false,false,false,true], 'UI: Weekend preset sets only Sat/Sun');
 
-  var addTierBtn = findBtn(cardDiv(0), function(b){ return b.dataset.action === 'addTier'; });
-  addTierBtn.click();
-  t.assertEqual(state.rateCards[0].ladder.length, 2, 'UI: Add Tier adds a ladder entry');
+  t.assertEqual(state.rateCards[0].bands.length, 1, 'newRateCard: starts with exactly one band');
+  var addBandBtn = findBtn(cardDiv(0), function(b){ return b.dataset.action === 'addBand'; });
+  addBandBtn.click();
+  t.assertEqual(state.rateCards[0].bands.length, 2, 'UI: Add Next Rate adds a band');
 
-  var thresholdInput = cardDiv(0).querySelector('input[data-ladder-field="thresholdMin"]');
-  thresholdInput.value = '120';
-  thresholdInput.dispatchEvent(new Event('input', {bubbles:true}));
-  t.assertEqual(state.rateCards[0].ladder[0].thresholdMin, 120, 'UI: editing ladder threshold updates state');
+  var startingInputs = cardDiv(0).querySelectorAll('input[data-band-field="startingMin"]');
+  t.assertEqual(startingInputs.length, 1, 'UI: only Band 1 has an editable Starting (min) input');
+  t.assertEqual(startingInputs[0].disabled, false, 'UI: Band 1\'s Starting (min) is not disabled');
+  t.assertEqual(Number(startingInputs[0].value), 15, 'UI: Band 1\'s Starting (min) defaults to 15');
+  startingInputs[0].value = '20';
+  startingInputs[0].dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.rateCards[0].bands[0].startingMin, 20, 'UI: editing Band 1\'s Starting (min) updates state');
 
-  var priceInput = cardDiv(0).querySelector('input[data-ladder-field="price"]');
-  priceInput.value = '15';
-  priceInput.dispatchEvent(new Event('input', {bubbles:true}));
-  t.assertEqual(state.rateCards[0].ladder[0].price, 15, 'UI: editing ladder price updates state');
+  var bandRows = cardDiv(0).querySelectorAll('.bandRow');
+  var band2StartingInput = bandRows[1].querySelector('.ctl:nth-child(2) input');
+  t.assertEqual(band2StartingInput.disabled, true, 'UI: Band 2\'s Starting (min) is locked (auto-derived, not editable)');
+  t.assertEqual(Number(band2StartingInput.value), state.rateCards[0].bands[0].upToMin, 'UI: Band 2\'s Starting (min) auto-shows Band 1\'s Up to (minutes)');
 
+  var rateInput = cardDiv(0).querySelector('input[data-band-field="rate"]');
+  rateInput.value = '7.5';
+  rateInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.rateCards[0].bands[0].rate, 7.5, 'UI: editing a band\'s rate updates state');
+
+  var upToInput = cardDiv(0).querySelector('input[data-band-field="upToMin"]');
+  upToInput.value = '90';
+  upToInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.rateCards[0].bands[0].upToMin, 90, 'UI: editing a band\'s Up to (minutes) updates state');
+  t.assertEqual(document.body.contains(upToInput), true, 'UI: editing Up to (minutes) does not rebuild the card (input stays in the document, so focus is preserved)');
+  t.assertEqual(Number(band2StartingInput.value), 90, 'UI: editing Band 1\'s Up to (minutes) live-updates Band 2\'s Starting (min) display without a full re-render');
+
+  var band1Warning = cardDiv(0).querySelector('[data-band-warning="0"]');
+  t.assertEqual(band1Warning.textContent, '', 'UI: no warning for a valid Up to (minutes) value');
+  upToInput.value = '2000';
+  upToInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(band1Warning.textContent, 'Only 1420 minutes left in the day', 'UI: entering more minutes than remain in the day (1440 - startingMin 20 = 1420) shows a live warning');
+  upToInput.value = '90';
+  upToInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(band1Warning.textContent, '', 'UI: warning clears once the value is corrected back within range');
+
+  t.assertEqual(!!findBtn(cardDiv(0), function(b){ return b.dataset.bandRemove === '0'; }), false, 'UI: the first band never has a remove button');
+  var removeBandBtn = findBtn(cardDiv(0), function(b){ return b.dataset.bandRemove === '1'; });
+  removeBandBtn.click();
+  t.assertEqual(state.rateCards[0].bands.length, 1, 'UI: Remove Rate removes a band');
+
+  t.assertEqual(!!findBtn(cardDiv(0), function(b){ return b.dataset.action === 'delete'; }), false, 'UI: the first/default rate card has no section Delete button');
   var deleteBtn = findBtn(cardDiv(1), function(b){ return b.dataset.action === 'delete'; });
+  t.assertEqual(!!deleteBtn, true, 'UI: a card added via + Add Rate Card DOES have a section Delete button');
   deleteBtn.click();
-  t.assertEqual(state.rateCards.length, 1, 'UI: Delete removes a card');
-
-  var removeTierBtn = cardDiv(0).querySelector('[data-ladder-remove]');
-  removeTierBtn.click();
-  t.assertEqual(state.rateCards[0].ladder.length, 1, 'UI: removing a ladder tier works');
+  t.assertEqual(state.rateCards.length, 2, 'UI: Delete removes a section card');
 
   // Regression: new cards must default to a valid <input type="time"> value (23:59, not 24:00).
   var freshCard = newRateCard();
   t.assertEqual(freshCard.endMin, 1439, 'newRateCard: defaults to 23:59 (1439 min), not invalid 24:00');
   t.assertEqual(RateEngine.minutesToTimeString(freshCard.endMin), '23:59', 'newRateCard: default end time renders as a valid time input value');
-  t.assertEqual(freshCard.ladder.length, 1, 'newRateCard: starts with one visible price tier, not an empty ladder');
+  t.assertEqual(freshCard.bands.length, 1, 'newRateCard: starts with one visible band, not an empty list');
+  t.assertEqual(freshCard.bands[0].startingMin, 15, 'newRateCard: Band 1\'s default Starting (min) is 15, like the old grace period');
+  t.assertEqual(freshCard.bands[0].upToMin, 60, 'newRateCard: default band Up to (minutes) is 60');
+  t.assertEqual(freshCard.bands[0].rate, null, 'newRateCard: default band Rate is blank/null until the user enters one, not $0');
 
   // Regression: a rate card name containing HTML must not break the rendered markup or execute.
   state.rateCards = [Object.assign(newRateCard(), { name: '"><img src=x>' })];
@@ -924,9 +1178,7 @@ function renderEarlyBird() {
     lbl.innerHTML = '<input type="checkbox" data-eb-day="' + dayIdx + '" ' + (state.earlyBird.days[dayIdx] ? 'checked' : '') + '>' + DAY_LABELS[dayIdx];
     dayBoxes.appendChild(lbl);
   });
-  var showFields = state.earlyBird.enabled;
-  document.getElementById('ebFields').style.display = showFields ? 'contents' : 'none';
-  document.getElementById('ebDayRow').style.display = showFields ? '' : 'none';
+  document.getElementById('ebCard').style.display = state.earlyBird.enabled ? 'block' : 'none';
 }
 document.getElementById('ebEnabled').addEventListener('change', function(e){
   state.earlyBird.enabled = e.target.checked;
@@ -949,12 +1201,12 @@ renderEarlyBird();
 window.__engineTestCases.push(function(t){
   document.getElementById('ebEnabled').checked = false;
   document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
-  t.assertEqual(document.getElementById('ebFields').style.display, 'none', 'EB UI: fields hidden when disabled');
+  t.assertEqual(document.getElementById('ebCard').style.display, 'none', 'EB UI: card hidden when disabled');
 
   document.getElementById('ebEnabled').checked = true;
   document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
   t.assertEqual(state.earlyBird.enabled, true, 'EB UI: enabling checkbox updates state');
-  t.assertEqual(document.getElementById('ebFields').style.display, 'contents', 'EB UI: fields visible when enabled');
+  t.assertEqual(document.getElementById('ebCard').style.display, 'block', 'EB UI: card visible when enabled');
 
   var entryStartGroup = document.getElementById('ebEntryStartGroup');
   var esHour = entryStartGroup.querySelector('select[data-timefield="entryStartMin"][data-timepart="hour"]');
@@ -1005,7 +1257,7 @@ window.__engineTestCases.push(function(t){
 
   document.getElementById('ebEnabled').checked = false;
   document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
-  t.assertEqual(document.getElementById('ebFields').style.display, 'none', 'EB UI: fields hidden when disabled again');
+  t.assertEqual(document.getElementById('ebCard').style.display, 'none', 'EB UI: card hidden when disabled again');
   t.assertEqual(state.earlyBird.entryStartMin, 360, 'EB UI: state preserved while fields are hidden');
 
   document.getElementById('ebEnabled').checked = true;
@@ -1079,10 +1331,11 @@ function renderCompare() {
   if (!result) { totalsEl.innerHTML = ''; bracketListEl.innerHTML = ''; excludedEl.innerHTML = ''; return; }
 
   totalsEl.innerHTML =
-    '<div class="card"><strong>Overall</strong><br>' +
-    'Static: ' + fmtMoney(result.totals.staticTotal) + ' &nbsp; ' +
-    'Actual: ' + fmtMoney(result.totals.actualTotal) + ' &nbsp; ' +
-    'Delta: ' + fmtDelta(result.totals.staticTotal, result.totals.actualTotal, result.totals.delta, result.totals.percentOfStatic, result.totals.percentOfActual) +
+    '<div class="statRow">' +
+    '<div class="card statCard"><div class="statLabel">Traditional Rate Revenue</div><div class="statValue">' + fmtMoney(result.totals.staticTotal) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">AI Revenue</div><div class="statValue">' + fmtMoney(result.totals.actualTotal) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">Variance</div><div class="statValue">' + fmtMoney(result.totals.delta) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">Percent</div><div class="statValue">' + fmtPercent(result.totals.percentOfStatic) + '</div></div>' +
     '</div>';
 
   bracketListEl.innerHTML = '';
@@ -1090,22 +1343,22 @@ function renderCompare() {
     var div = document.createElement('div');
     div.className = 'card';
     var html =
-      '<strong>' + escapeHtml(b.name) + '</strong> (Visits: ' + b.count + ')<br>' +
-      'Static: ' + fmtMoney(b.staticTotal) + ' &nbsp; Actual: ' + fmtMoney(b.actualTotal) +
-      ' &nbsp; Validation: ' + fmtMoney(b.validationTotal) + ' &nbsp; Delta: ' + fmtDelta(b.staticTotal, b.actualTotal, b.delta, b.percentOfStatic, b.percentOfActual);
+      '<div class="bracketName">' + escapeHtml(b.name) + '</div>' +
+      '<div class="bracketMeta">Visits: ' + b.count + ' &nbsp; Static: ' + fmtMoney(b.staticTotal) + ' &nbsp; Actual: ' + fmtMoney(b.actualTotal) +
+      ' &nbsp; Validation: ' + fmtMoney(b.validationTotal) + ' &nbsp; Delta: ' + fmtDelta(b.staticTotal, b.actualTotal, b.delta, b.percentOfStatic, b.percentOfActual) + '</div>';
 
-    b.dayList.forEach(function(d){
+    b.dayList.forEach(function(d, idx){
       var dayKey = b.name + '|' + d.dayIndex;
       var dayName = DAY_LABELS[d.dayIndex];
       var dayUnrolled = state.unrolledBrackets.has(dayKey);
-      html += '<div style="margin-top:6px;padding-left:8px">' +
+      html += '<div class="dayRow ' + (idx % 2 === 0 ? 'even' : 'odd') + '">' +
         '<strong>' + dayName + '</strong> Visits: ' + d.count + ' &nbsp; ' +
         'Static: ' + fmtMoney(d.staticTotal) + ' &nbsp; Actual: ' + fmtMoney(d.actualTotal) + ' &nbsp; ' +
         'Delta: ' + fmtDelta(d.staticTotal, d.actualTotal, d.delta, d.percentOfStatic, d.percentOfActual);
       if (!state.ignoreValidations) {
         html += ' &nbsp; <button class="btnGhost" data-bracket="' + escapeHtml(dayKey) + '">' + (dayUnrolled ? 'Roll up ▲' : 'Unroll ▾') + '</button>';
         if (dayUnrolled) {
-          html += '<div style="margin-top:4px;padding-left:12px;border-left:2px solid var(--line)">' +
+          html += '<div class="dayRowDetail">' +
             'Normal (' + d.normal.count + '): Static ' + fmtMoney(d.normal.staticTotal) + ', Actual ' + fmtMoney(d.normal.actualTotal) + '<br>' +
             'Validation (' + d.validation.count + '): Static ' + fmtMoney(d.validation.staticTotal) + ', Actual ' + fmtMoney(d.validation.actualTotal) + ', Validation ' + fmtMoney(d.validation.validationTotal) +
             '</div>';
@@ -1145,24 +1398,36 @@ document.getElementById('ignoreValidationsToggle').addEventListener('change', fu
 
 <script>
 window.__engineTestCases.push(function(t){
-  state.rateCards = [{ id:'day', name:'Day', days:[true,true,true,true,true,true,true], startMin:0, endMin:1439, graceMin:15,
-    ladder:[{thresholdMin:120,price:10}] }];
+  state.rateCards = [{ id:'day', name:'Day', days:[true,true,true,true,true,true,true], startMin:0, endMin:1439,
+    bands:[{rate:10,upToMin:1440}] }];
   state.earlyBird = { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 };
   state.cutoffHours = 24;
   state.ignoreValidations = false;
   state.unrolledBrackets = new Set();
 
-  // 7/1/2026 is a Wednesday (dayIndex 3)
+  // 7/1/2026 is a Wednesday (dayIndex 3), 7/2/2026 is a Thursday (dayIndex 4)
   var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
   var row1 = "1\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$12.00\t\t$12.00\tTransient (No Coverage)";
-  applyVisitFileBuffer(t.utf16leEncode(header + row1), 'test.csv');
+  var row2 = "2\t7/2/2026\t10:00:00 AM\t7/2/2026\t11:30:00 AM\tFalse\t$12.00\t\t$12.00\tTransient (No Coverage)";
+  applyVisitFileBuffer(t.utf16leEncode(header + row1 + "\n" + row2), 'test.csv');
 
   var bracket = state.compareResult.brackets[0];
-  t.assertEqual(bracket.dayList.length, 1, 'runComparison: bracket has one day-of-week entry for the one test visit');
-  t.assertEqual(bracket.dayList[0].dayIndex, 3, 'runComparison: day entry keyed to Wednesday (dayIndex 3)');
-  t.assertEqual(bracket.dayList[0].count, 1, 'runComparison: Wednesday day-row has the one visit');
-  t.assertEqual(Math.round(bracket.percentOfStatic), 20, 'runComparison: bracket percentOfStatic = (12-10)/10*100 = 20%');
-  t.assertEqual(Math.round(bracket.percentOfActual * 10) / 10, 16.7, 'runComparison: bracket percentOfActual = (12-10)/12*100 ~= 16.7%');
+  t.assertEqual(bracket.dayList.length, 2, 'runComparison: bracket has two day-of-week entries, sorted Wed then Thu');
+  t.assertEqual(bracket.dayList[0].dayIndex, 3, 'runComparison: first day entry keyed to Wednesday (dayIndex 3)');
+  t.assertEqual(bracket.dayList[0].count, 1, 'runComparison: Wednesday day-row has one visit');
+  t.assertEqual(Math.round(bracket.percentOfStatic), 20, 'runComparison: bracket percentOfStatic = (24-20)/20*100 = 20%');
+  t.assertEqual(Math.round(bracket.percentOfActual * 10) / 10, 16.7, 'runComparison: bracket percentOfActual = (24-20)/24*100 ~= 16.7%');
+
+  var statCards = document.querySelectorAll('#totalsSummary .statCard');
+  t.assertEqual(statCards.length, 4, 'renderCompare: 4 summary bubbles rendered (Traditional Rate Revenue, AI Revenue, Variance, Percent)');
+  t.assertEqual(statCards[0].textContent.indexOf('Traditional Rate Revenue') > -1, true, 'renderCompare: first bubble labeled Traditional Rate Revenue');
+  t.assertEqual(statCards[0].textContent.indexOf('$20.00') > -1, true, 'renderCompare: first bubble shows the static total');
+  t.assertEqual(statCards[1].textContent.indexOf('$24.00') > -1, true, 'renderCompare: AI Revenue bubble shows the actual total');
+
+  var dayRows = document.querySelectorAll('#bracketList .dayRow');
+  t.assertEqual(dayRows.length, 2, 'renderCompare: one .dayRow element per day-of-week entry');
+  t.assertEqual(dayRows[0].classList.contains('even'), true, 'renderCompare: first day row is zebra-striped even');
+  t.assertEqual(dayRows[1].classList.contains('odd'), true, 'renderCompare: second day row is zebra-striped odd');
 
   var dayUnrollBtn = document.querySelector('#bracketList button[data-bracket="Day|3"]');
   t.assertEqual(!!dayUnrollBtn, true, 'renderCompare: day-row unroll button uses compound bracket|dayIndex key');
