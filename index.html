@@ -61,10 +61,24 @@ select{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background
 .statCard .statValue{font-size:20px;font-weight:700}
 .bracketName{font-size:15px;font-weight:700}
 .bracketMeta{color:var(--muted);font-size:13px;margin-top:2px}
-.dayRow{font-size:13px;padding:6px 8px;border-radius:6px;margin-top:6px}
-.dayRow.even{background:var(--surface)}
-.dayRow.odd{background:var(--bg)}
-.dayRowDetail{margin-top:4px;padding-left:12px;border-left:2px solid var(--line);font-size:12px;color:var(--muted)}
+.reportTable{width:100%;table-layout:fixed;border-collapse:collapse;margin-top:6px;font-size:13px}
+.reportTable th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;padding:4px 8px;border-bottom:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reportTable td{padding:4px 8px}
+.reportTable tr.even td{background:var(--surface)}
+.reportTable tr.odd td{background:var(--bg)}
+/* Only Time Window gets a fixed width (it needs the extra room for text like
+   "4:00 AM–4:00 PM"). Band, Rate, every day column, and Total are ALL left
+   unspecified, so table-layout:fixed splits the remaining width equally
+   between every one of them — the gap between Band and Rate is then the
+   same as the gap between Rate and Mon, and the same as Mon-to-Tue, etc.,
+   since they're all literally the same column width. */
+.reportTable th:nth-child(1),.reportTable td:nth-child(1){width:170px}
+/* The Summary table has a different 5-column layout (Category/Traditional/AI/
+   Variance/Uplift %) — evenly split, not the Time Window/Band/Rate + day grid
+   above, and it DOES span the full card width since it has no day-count variance. */
+.summaryTable{width:100%}
+.summaryTable th:nth-child(n),.summaryTable td:nth-child(n){width:20%}
+.summaryTable tr.spacerRow td{padding:10px 0 0;border:none;background:none}
 </style>
 </head>
 <body>
@@ -73,6 +87,7 @@ select{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background
   <div class="spacer"></div>
   <nav id="tabNav">
     <button data-tab="setup" class="active">Setup</button>
+    <button data-tab="discover">Discover</button>
     <button data-tab="compare">Compare</button>
   </nav>
   <div class="spacer"></div>
@@ -116,14 +131,59 @@ select{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background
       <input type="file" id="fileInput" style="display:none" accept=".csv">
     </div>
   </div>
-  <button id="loadToCompareBtn" class="btnPrimary">Load to Compare</button>
+</div>
+<div id="discoverPage" class="page">
+  <h2>Discover</h2>
+  <p class="sub">Drop an old visit export and we'll figure out the rate bands and fill in Setup's rate cards automatically.</p>
+  <div class="card">
+    <div class="sub" style="margin:0 0 10px">Time windows</div>
+    <div class="row">
+      <label class="toggle" style="cursor:pointer"><input type="checkbox" id="discoverAllDay" checked> All-Day Rates</label>
+    </div>
+    <div class="row" id="discoverQuickSetupCard">
+      <div class="ctl"><label>Day Rate Start Time</label><div id="discoverDayStartGroup"></div></div>
+      <div class="ctl"><label>Evening Rate Start Time</label><div id="discoverEveningStartGroup"></div></div>
+    </div>
+  </div>
+  <div class="row"><label class="toggle" style="cursor:pointer"><input type="checkbox" id="discoverEbEnabled"> Early Bird (same setting as Setup &mdash; editing either one updates both)</label></div>
+  <div class="card" id="discoverEbCard" style="display:none">
+    <div class="row">
+      <div class="ctl"><label>Entry window start</label><div id="discoverEbEntryStartGroup"></div></div>
+      <div class="ctl"><label>Entry window end</label><div id="discoverEbEntryEndGroup"></div></div>
+      <div class="ctl"><label>Exit condition</label>
+        <select id="discoverEbExitCondition"><option value="before">Exit Before</option><option value="after">Exit After</option></select>
+      </div>
+      <div class="ctl"><label>Exit time</label><div id="discoverEbExitTimeGroup"></div></div>
+      <div class="ctl"><label>Price</label><input type="number" id="discoverEbPrice"></div>
+    </div>
+    <div class="row" id="discoverEbDayRow"><div class="dayBoxes" id="discoverEbDayBoxes"></div></div>
+  </div>
+  <div class="card">
+    <div class="row">
+      <div id="historicalDropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--teal);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
+        <div style="font-size:26px;color:var(--teal)">&#8681;</div>
+        <h3 style="margin:6px 0 2px;font-size:13px">Drop historical visit CSV</h3>
+        <div id="historicalDropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
+      </div>
+      <input type="file" id="historicalFileInput" style="display:none" accept=".csv">
+      <div class="ctl" style="justify-content:flex-end">
+        <button id="inferBandsBtn" class="btnPrimary">Infer &amp; Apply Rate Bands</button>
+      </div>
+    </div>
+    <div id="inferStatus" class="sub" style="margin:6px 0 0"></div>
+  </div>
 </div>
 <div id="comparePage" class="page">
-  <h2>Compare</h2>
+  <div style="display:flex;justify-content:space-between;align-items:baseline">
+    <h2>Compare</h2>
+    <div style="display:flex;gap:16px">
+      <label class="toggle" style="cursor:pointer"><input type="checkbox" id="includeFullValidations" checked> Include Full Validations</label>
+      <label class="toggle" style="cursor:pointer"><input type="checkbox" id="includePartialValidations" checked> Include Partial Validations</label>
+    </div>
+  </div>
   <p class="sub">Actual (AI-priced) charges vs. what the static rate table would have charged.</p>
-  <div class="row"><label class="toggle"><input type="checkbox" id="ignoreValidationsToggle"><span>Ignore Validations</span></label></div>
   <div id="totalsSummary"></div>
-  <div id="bracketList"></div>
+  <div id="rateReport"></div>
   <div id="excludedSummary"></div>
 </div>
 
@@ -132,13 +192,13 @@ select{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background
 document.getElementById('nightToggle').addEventListener('click', function(){
   document.body.classList.toggle('night');
 });
+function switchToTab(tabName) {
+  document.querySelectorAll('#tabNav button').forEach(function(b){ b.classList.toggle('active', b.dataset.tab === tabName); });
+  document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
+  document.getElementById(tabName + 'Page').classList.add('active');
+}
 document.querySelectorAll('#tabNav button').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    document.querySelectorAll('#tabNav button').forEach(function(b){b.classList.remove('active')});
-    document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
-    btn.classList.add('active');
-    document.getElementById(btn.dataset.tab + 'Page').classList.add('active');
-  });
+  btn.addEventListener('click', function(){ switchToTab(btn.dataset.tab); });
 });
 </script>
 
@@ -213,12 +273,30 @@ RateEngine.withinRange = function(minutes, startMin, endMin) {
 
 // First matching card wins by array order; the UI does not currently prevent
 // users from creating overlapping rate cards, so insertion order is precedence.
+// First matching card wins by array order; the UI does not currently prevent
+// users from creating overlapping rate cards, so insertion order is precedence.
 RateEngine.findMatchingRateCard = function(rateCards, entryDate) {
   var day = entryDate.getDay();
+  var prevDay = (day + 6) % 7;
   var minutes = entryDate.getHours() * 60 + entryDate.getMinutes();
   for (var i = 0; i < rateCards.length; i++) {
     var card = rateCards[i];
-    if (card.days[day] && RateEngine.withinRange(minutes, card.startMin, card.endMin)) return card;
+    // A card whose End Time's minute component is :59 (e.g. "11:59 PM")
+    // represents "through the end of that final minute" — use an inclusive
+    // upper bound there instead of the normal exclusive one.
+    var inclusive = card.endMin % 60 === 59;
+    if (card.startMin < card.endMin) {
+      var upperOk = inclusive ? minutes <= card.endMin : minutes < card.endMin;
+      if (card.days[day] && minutes >= card.startMin && upperOk) return card;
+    } else {
+      // Overnight window (endMin < startMin): the evening portion is tagged
+      // to today's day flag; the pre-dawn spillover (before endMin) is
+      // tagged to YESTERDAY's day flag, since the window started the
+      // previous calendar day.
+      if (minutes >= card.startMin && card.days[day]) return card;
+      var spilloverOk = inclusive ? minutes <= card.endMin : minutes < card.endMin;
+      if (spilloverOk && card.days[prevDay]) return card;
+    }
   }
   return null;
 };
@@ -272,28 +350,42 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
   // Early Bird takes precedence over the matching rate card's duration ladder
   // whenever it qualifies — a visit never gets both, EB fully overrides.
   var ebPrice = RateEngine.checkEarlyBird(earlyBird, entryDate, exitDate);
-  var staticPrice, bracketName;
+  var staticPrice, bracketName, bandUpToMin;
   if (ebPrice !== null) {
     staticPrice = ebPrice;
     bracketName = 'Early Bird';
+    bandUpToMin = null;
   } else {
     var card = RateEngine.findMatchingRateCard(rateCards, entryDate);
     if (!card) return { excluded: 'no_matching_rate_card', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
-    staticPrice = RateEngine.selectBand(card.bands, durationMin).rate;
+    var band = RateEngine.selectBand(card.bands, durationMin);
+    staticPrice = band.rate;
     bracketName = card.name || 'Unnamed';
+    bandUpToMin = band.upToMin;
   }
 
   var coverageType = row['Visit Coverage Type'] || '';
+  // "Not blank" on the RAW cell text, not "parses to a number > 0" — a
+  // literal $0.00 (e.g. a Fully Covered visit's GPV) is a real recorded
+  // transaction and must still count; only a genuinely blank/missing cell
+  // should be excluded.
+  var hasGpv = row['GPV Amt'] !== undefined && String(row['GPV Amt']).trim() !== '';
+  var hasValidationAmt = row['Validation Amt'] !== undefined && String(row['Validation Amt']).trim() !== '';
+  var validationType = coverageType.indexOf('Fully') > -1 ? 'full' : (coverageType.indexOf('Partial') > -1 ? 'partial' : null);
   return {
     excluded: null,
     bracketName: bracketName,
     entryDate: entryDate,
     durationMin: durationMin,
     staticPrice: staticPrice,
+    bandUpToMin: bandUpToMin,
     actualPrice: actualPrice,
     validationAmt: RateEngine.parseMoney(row['Validation Amt']),
     gpv: RateEngine.parseMoney(row['GPV Amt']),
+    hasGpv: hasGpv,
+    hasValidationAmt: hasValidationAmt,
     coverageType: coverageType,
+    validationType: validationType,
     // Allowlist rather than negating the one known non-validated value, so an
     // unrecognized/blank coverage type fails safe (uncounted) instead of
     // silently inflating validated totals.
@@ -393,6 +485,120 @@ RateEngine.aggregateByBracket = function(processedVisits) {
   return { brackets: bracketList, totals: totals, excluded: excluded };
 };
 
+RateEngine.buildRateReport = function(processedVisits, rateCards, earlyBird, opts) {
+  var DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun, matches Date.getDay() (0=Sun..6=Sat) — duplicated here
+  // rather than shared with the UI layer's DAY_ORDER, since RateEngine stays
+  // pure/DOM-free and must not depend on UI-script globals.
+
+  // opts lets the same band/day-matching algorithm run twice against two
+  // independent money columns (GPV Amt and Validation Amt) — see the
+  // Compare tab spec: a visit can legitimately qualify for BOTH (e.g. a
+  // partial validation has a real GPV portion AND a real Validation
+  // portion), so this is never "add them together," always two separate runs.
+  opts = opts || {};
+  var qualifies = opts.qualifies || function(v){ return v.gpv > 0; };
+  var actualField = opts.actualField || 'actualPrice';
+
+  function uplift(diff, base) {
+    return base !== 0 ? (diff / base) * 100 : null;
+  }
+
+  function buildSection(name, startMin, endMin, days, bands, visits) {
+    // Only real, user-configured bands become rows — a duration shorter
+    // than Band 1's startingMin isn't a reportable category on its own, it
+    // just silently has no matching row (same as a visit that doesn't qualify).
+    var rows = bands.slice().sort(function(a, b){ return a.upToMin - b.upToMin; });
+    var activeDays = DAY_ORDER.filter(function(d){ return days[d]; });
+    var rowResults = rows.map(function(band, idx){
+      var startingMin = band.upToMin === null ? null : (idx === 0
+        ? (typeof rows[0].startingMin === 'number' ? rows[0].startingMin : 0)
+        : rows[idx - 1].upToMin);
+      var countByDay = {}, staticByDay = {}, actualByDay = {}, varianceByDay = {}, upliftPctByDay = {};
+      activeDays.forEach(function(d){
+        var matching = visits.filter(function(v){
+          return qualifies(v) && v.entryDate.getDay() === d && v.bandUpToMin === band.upToMin;
+        });
+        countByDay[d] = matching.length;
+        staticByDay[d] = matching.reduce(function(sum, v){ return sum + v.staticPrice; }, 0);
+        actualByDay[d] = matching.reduce(function(sum, v){ return sum + v[actualField]; }, 0);
+        varianceByDay[d] = actualByDay[d] - staticByDay[d];
+        upliftPctByDay[d] = uplift(varianceByDay[d], staticByDay[d]);
+      });
+      var totalCount = activeDays.reduce(function(sum, d){ return sum + countByDay[d]; }, 0);
+      var totalStatic = activeDays.reduce(function(sum, d){ return sum + staticByDay[d]; }, 0);
+      var totalActual = activeDays.reduce(function(sum, d){ return sum + actualByDay[d]; }, 0);
+      var totalVariance = totalActual - totalStatic;
+      return {
+        rate: band.rate, startingMin: startingMin, upToMin: band.upToMin,
+        countByDay: countByDay, staticByDay: staticByDay, actualByDay: actualByDay,
+        varianceByDay: varianceByDay, upliftPctByDay: upliftPctByDay,
+        totalCount: totalCount, totalStatic: totalStatic, totalActual: totalActual,
+        totalVariance: totalVariance, totalUpliftPct: uplift(totalVariance, totalStatic)
+      };
+    });
+    return { name: name, startMin: startMin, endMin: endMin, activeDays: activeDays, rows: rowResults };
+  }
+
+  var sections = [];
+
+  if (earlyBird && earlyBird.enabled) {
+    var ebVisits = processedVisits.filter(function(v){ return !v.excluded && v.bracketName === 'Early Bird'; });
+    var ebRow = [{ rate: earlyBird.price, upToMin: null }];
+    sections.push(buildSection('Early Bird', earlyBird.entryStartMin, earlyBird.entryEndMin, earlyBird.days, ebRow, ebVisits));
+  }
+
+  rateCards.forEach(function(card){
+    // Must match processVisit's own fallback exactly — a blank Name field
+    // still prices visits fine (bracketName becomes 'Unnamed'), but without
+    // this fallback here, every one of that card's visits would silently
+    // fail to match its own section (comparing 'Unnamed' against '').
+    var cardName = card.name || 'Unnamed';
+    var cardVisits = processedVisits.filter(function(v){ return !v.excluded && v.bracketName === cardName; });
+    sections.push(buildSection(cardName, card.startMin, card.endMin, card.days, card.bands, cardVisits));
+  });
+
+  var summaryRows = sections.map(function(section){
+    var staticTotal = 0, actualTotal = 0, count = 0;
+    section.rows.forEach(function(row){
+      section.activeDays.forEach(function(d){
+        staticTotal += row.staticByDay[d];
+        actualTotal += row.actualByDay[d];
+        count += row.countByDay[d];
+      });
+    });
+    var variance = actualTotal - staticTotal;
+    var avgStatic = count > 0 ? staticTotal / count : null;
+    var avgActual = count > 0 ? actualTotal / count : null;
+    var avgVariance = (avgStatic !== null && avgActual !== null) ? avgActual - avgStatic : null;
+    return {
+      name: section.name, staticTotal: staticTotal, actualTotal: actualTotal, count: count,
+      variance: variance, upliftPct: uplift(variance, staticTotal),
+      avgStatic: avgStatic, avgActual: avgActual, avgVariance: avgVariance,
+      avgUpliftPct: avgVariance !== null ? uplift(avgVariance, avgStatic) : null
+    };
+  });
+  var grandStatic = summaryRows.reduce(function(sum, r){ return sum + r.staticTotal; }, 0);
+  var grandActual = summaryRows.reduce(function(sum, r){ return sum + r.actualTotal; }, 0);
+  var grandCount = summaryRows.reduce(function(sum, r){ return sum + r.count; }, 0);
+  var grandVariance = grandActual - grandStatic;
+  var grandAvgStatic = grandCount > 0 ? grandStatic / grandCount : null;
+  var grandAvgActual = grandCount > 0 ? grandActual / grandCount : null;
+  var grandAvgVariance = (grandAvgStatic !== null && grandAvgActual !== null) ? grandAvgActual - grandAvgStatic : null;
+
+  return {
+    sections: sections,
+    summary: {
+      rows: summaryRows,
+      total: {
+        staticTotal: grandStatic, actualTotal: grandActual, count: grandCount,
+        variance: grandVariance, upliftPct: uplift(grandVariance, grandStatic),
+        avgStatic: grandAvgStatic, avgActual: grandAvgActual, avgVariance: grandAvgVariance,
+        avgUpliftPct: grandAvgVariance !== null ? uplift(grandAvgVariance, grandAvgStatic) : null
+      }
+    }
+  };
+};
+
 RateEngine.computeCoverageGrid = function(rateCards) {
   var grid = [];
   for (var day = 0; day < 7; day++) {
@@ -416,6 +622,200 @@ RateEngine.computeCoverageGrid = function(rateCards) {
     grid.push(row);
   }
   return grid;
+};
+
+// Given a raw historical visits export (parsed the same way as the Compare
+// tab's own CSV), figures out which rate card (or Early Bird) each visit
+// would have matched by day/time window alone — bands don't exist yet at
+// this point, so only days/startMin/endMin are used — then buckets each
+// card's visits into duration brackets and takes the modal (most common)
+// price per bracket, consolidating adjacent brackets that share a price into
+// a single band. This is a "what rate table produced these historical
+// charges" inference, not a live pricing calculation.
+//
+// Anything that matches no already-shaped rate card falls through to the
+// Discover tab's day-of-week clustering instead of being silently dropped:
+// it's classified into the Day/Evening/All-Day window from `discoverSetup`,
+// then grouped by day of week, so a blank Setup tab (zero configured cards)
+// still gets a complete rate table built from scratch.
+RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, discoverSetup, opts) {
+  opts = opts || {};
+  var bracketMin = opts.bracketMin || 30;
+  // A bracket needs this many visits of support to count as a real price
+  // break — below that, it's treated as if there were no data there (a gap),
+  // so its visits get silently absorbed into whichever well-supported band
+  // ends up spanning that duration, instead of spawning their own
+  // low-confidence band from one or two outlier transactions.
+  var minBracketSupport = opts.minBracketSupport === undefined ? 5 : opts.minBracketSupport;
+  discoverSetup = discoverSetup || { allDay: true, dayStartMin: 0, eveningStartMin: 0 };
+
+  // Kept local (not shared with the UI layer's DAY_ORDER/DAY_LABELS) since
+  // RateEngine stays pure/DOM-free — same reasoning as buildRateReport's own
+  // local DAY_ORDER above.
+  var DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MON_FIRST = [1, 2, 3, 4, 5, 6, 0];
+
+  function isUsableRow(row) {
+    return String(row['Is Special Event Rate']).toLowerCase() !== 'true';
+  }
+
+  function mode(nums) {
+    var counts = {}, best = null, bestCount = -1;
+    nums.forEach(function(n){ counts[n] = (counts[n] || 0) + 1; });
+    // Ties broken toward the smaller value (matches pandas' Series.mode(),
+    // which returns sorted-ascending candidates and takes the first).
+    Object.keys(counts).map(Number).sort(function(a, b){ return a - b; }).forEach(function(n){
+      if (counts[n] > bestCount) { bestCount = counts[n]; best = n; }
+    });
+    return best;
+  }
+
+  // Consolidates a set of {durationMin, price} visits into bands shaped
+  // exactly like a rate card's `bands` array (startingMin on the first entry
+  // only), so callers can assign the result straight to `card.bands`.
+  function consolidate(visits) {
+    var byBracket = {};
+    visits.forEach(function(v){
+      var b = Math.floor(v.durationMin / bracketMin) * bracketMin;
+      (byBracket[b] = byBracket[b] || []).push(v.price);
+    });
+    var brackets = Object.keys(byBracket)
+      .map(Number)
+      .filter(function(b){ return byBracket[b].length >= minBracketSupport; })
+      .sort(function(a, b){ return a - b; });
+    if (!brackets.length) return [];
+    var bands = [];
+    var curPrice = mode(byBracket[brackets[0]]);
+    for (var i = 1; i < brackets.length; i++) {
+      var price = mode(byBracket[brackets[i]]);
+      if (price !== curPrice) {
+        bands.push({ rate: curPrice, upToMin: brackets[i] });
+        curPrice = price;
+      }
+    }
+    bands.push({ rate: curPrice, upToMin: brackets[brackets.length - 1] + bracketMin });
+
+    // A leading $0 band is really a free/grace period, not a billable band —
+    // fold it into Band 1's `startingMin` the same way the Setup tab models
+    // a manually-entered free period, rather than showing a phantom $0 row.
+    var startingMin = 0;
+    if (bands.length > 1 && bands[0].rate === 0) {
+      startingMin = bands[0].upToMin;
+      bands = bands.slice(1);
+    }
+    bands[0] = { rate: bands[0].rate, startingMin: startingMin, upToMin: bands[0].upToMin };
+    return bands;
+  }
+
+  // A ladder's identity for merge purposes ignores the very last band's exact
+  // upToMin — it's an unbounded catch-all regardless of the number attached
+  // to it, so two days can agree on every real price break yet still
+  // disagree trivially on whichever one happened to record the single
+  // longest stay.
+  function ladderKey(bands) {
+    return bands.map(function(b, i){
+      return b.rate + '@' + (i === bands.length - 1 ? 'END' : b.upToMin);
+    }).join('|') + '/' + bands[0].startingMin;
+  }
+
+  function dayLabel(daysMask, windowName) {
+    var isAllDays = daysMask.every(function(v){ return v; });
+    var isWeekday = daysMask[1] && daysMask[2] && daysMask[3] && daysMask[4] && daysMask[5] && !daysMask[0] && !daysMask[6];
+    var isWeekend = daysMask[0] && daysMask[6] && !daysMask[1] && !daysMask[2] && !daysMask[3] && !daysMask[4] && !daysMask[5];
+    var base = isAllDays ? 'All Days' : isWeekday ? 'Weekday' : isWeekend ? 'Weekend' :
+      MON_FIRST.filter(function(d){ return daysMask[d]; }).map(function(d){ return DAY_ABBR[d]; }).join(', ');
+    return windowName ? (windowName + ' — ' + base) : base;
+  }
+
+  var byCard = {}, ebPrices = [];
+  var windows = discoverSetup.allDay
+    ? { AllDay: { startMin: 0, endMin: 1439, byDay: {} } }
+    : {
+        Day: { startMin: discoverSetup.dayStartMin, endMin: discoverSetup.eveningStartMin, byDay: {} },
+        Evening: { startMin: discoverSetup.eveningStartMin, endMin: discoverSetup.dayStartMin, byDay: {} }
+      };
+
+  historicalRows.forEach(function(row){
+    if (!isUsableRow(row)) return;
+    var entryDate, exitDate;
+    try {
+      entryDate = RateEngine.parseVisitTimestamp(row['Visit Start Date'], row['Visit Start At']);
+      exitDate = RateEngine.parseVisitTimestamp(row['Visit Exit  Event Date'], row['Visit Exit  Event At']);
+    } catch (e) { return; }
+    var durationMin = RateEngine.computeDurationMinutes(entryDate, exitDate);
+    var price = RateEngine.parseMoney(row['Price Amt']);
+    if (durationMin < 0 || price < 0) return;
+
+    var ebPrice = RateEngine.checkEarlyBird(earlyBird, entryDate, exitDate);
+    if (ebPrice !== null) { ebPrices.push(price); return; }
+
+    var card = RateEngine.findMatchingRateCard(rateCards, entryDate);
+    if (card) {
+      var name = card.name || 'Unnamed';
+      (byCard[name] = byCard[name] || []).push({ durationMin: durationMin, price: price });
+      return;
+    }
+
+    var minutes = entryDate.getHours() * 60 + entryDate.getMinutes();
+    var winName = discoverSetup.allDay ? 'AllDay'
+      : (RateEngine.withinRange(minutes, discoverSetup.dayStartMin, discoverSetup.eveningStartMin) ? 'Day' : 'Evening');
+    var win = windows[winName];
+    var dow = entryDate.getDay();
+    (win.byDay[dow] = win.byDay[dow] || []).push({ durationMin: durationMin, price: price });
+  });
+
+  var cardBands = {}, perCardCounts = {};
+  Object.keys(byCard).forEach(function(name){
+    cardBands[name] = consolidate(byCard[name]);
+    perCardCounts[name] = byCard[name].length;
+  });
+
+  var newCards = [], insufficientDataCount = 0;
+  var windowNames = Object.keys(windows);
+  var multiWindow = windowNames.length > 1;
+
+  windowNames.forEach(function(winName){
+    var win = windows[winName];
+    var dowKeys = Object.keys(win.byDay).map(Number);
+    if (!dowKeys.length) return;
+
+    var groups = {}; // ladderKey -> [dayIndices], for days with a non-empty ladder
+    dowKeys.forEach(function(d){
+      var ladder = consolidate(win.byDay[d]);
+      if (!ladder.length) { insufficientDataCount += win.byDay[d].length; return; }
+      var key = ladderKey(ladder);
+      (groups[key] = groups[key] || []).push(d);
+    });
+
+    Object.keys(groups).forEach(function(key){
+      var days = groups[key];
+      var combinedVisits = [];
+      days.forEach(function(d){ combinedVisits = combinedVisits.concat(win.byDay[d]); });
+      // Re-consolidate against the combined visits of every day in the group
+      // (not just one day's numbers) for a statistically stronger, single
+      // final ladder now that we know these days belong together.
+      var bands = consolidate(combinedVisits);
+      if (!bands.length) { insufficientDataCount += combinedVisits.length; return; }
+      var daysMask = [false, false, false, false, false, false, false];
+      days.forEach(function(d){ daysMask[d] = true; });
+      newCards.push({
+        name: dayLabel(daysMask, multiWindow ? winName : null),
+        days: daysMask,
+        startMin: win.startMin,
+        endMin: win.endMin,
+        bands: bands
+      });
+    });
+  });
+
+  return {
+    cardBands: cardBands,
+    perCardCounts: perCardCounts,
+    newCards: newCards,
+    earlyBirdPrice: ebPrices.length ? mode(ebPrices) : null,
+    earlyBirdCount: ebPrices.length,
+    insufficientDataCount: insufficientDataCount
+  };
 };
 </script>
 
@@ -488,8 +888,8 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(RateEngine.withinRange(500, 960, 240), false, 'withinRange: overnight wrap, outside both parts');
 
   var cards = [
-    { id: 'weekday_day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960, graceMin: 15, ladder: [] },
-    { id: 'weekend_all', days: [true,false,false,false,false,false,true], startMin: 0, endMin: 1440, graceMin: 15, ladder: [] }
+    { id: 'weekday_day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960 },
+    { id: 'weekend_all', days: [true,false,false,false,false,false,true], startMin: 0, endMin: 1440 }
   ];
   var wed10am = new Date(2026, 6, 1, 10, 0, 0);
   var match = RateEngine.findMatchingRateCard(cards, wed10am);
@@ -502,6 +902,34 @@ window.__engineTestCases.push(function(t){
   var wed2am = new Date(2026, 6, 1, 2, 0, 0);
   var match3 = RateEngine.findMatchingRateCard(cards, wed2am);
   t.assertEqual(match3, null, 'findMatchingRateCard: returns null when no card covers the time');
+
+  // Overnight card: 6pm (1080 min) Monday through 1am (60 min) the next day, tagged to Monday.
+  var overnightCard = [{ id: 'evening', days: [false,true,false,false,false,false,false], startMin: 1080, endMin: 60 }];
+  var monEvening = new Date(2026, 6, 6, 19, 0, 0); // 2026-07-06 is a Monday, 7pm
+  var eveningMatch = RateEngine.findMatchingRateCard(overnightCard, monEvening);
+  t.assertEqual(eveningMatch && eveningMatch.id, 'evening', 'findMatchingRateCard: overnight card matches its evening portion, tagged to entry day');
+
+  var tuePreDawn = new Date(2026, 6, 7, 0, 30, 0); // Tuesday 12:30am — the Monday-night spillover
+  var spilloverMatch = RateEngine.findMatchingRateCard(overnightCard, tuePreDawn);
+  t.assertEqual(spilloverMatch && spilloverMatch.id, 'evening', 'findMatchingRateCard: overnight pre-dawn spillover matches via the PREVIOUS day flag, not the current day');
+
+  var tue1am = new Date(2026, 6, 7, 1, 30, 0); // Tuesday 1:30am — past the spillover window
+  var pastSpillover = RateEngine.findMatchingRateCard(overnightCard, tue1am);
+  t.assertEqual(pastSpillover, null, 'findMatchingRateCard: past the overnight spillover end no longer matches');
+
+  var wedOnlyOvernight = [{ id: 'wed_evening', days: [false,false,false,true,false,false,false], startMin: 1080, endMin: 60 }];
+  var friPreDawnUnflagged = new Date(2026, 6, 10, 0, 30, 0); // 2026-07-10 is a Friday; its previous day (Thursday) is not flagged
+  t.assertEqual(RateEngine.findMatchingRateCard(wedOnlyOvernight, friPreDawnUnflagged), null, 'findMatchingRateCard: spillover does not match when the previous day is not flagged');
+
+  // :59-inclusive end time: a card ending at 11:59 PM (1439) must match an entry AT exactly 11:59 PM.
+  var endsAt1159 = [{ id: 'day59', days: [false,true,false,false,false,false,false], startMin: 0, endMin: 1439 }];
+  var mon1159pm = new Date(2026, 6, 6, 23, 59, 0);
+  var inclusiveMatch = RateEngine.findMatchingRateCard(endsAt1159, mon1159pm);
+  t.assertEqual(inclusiveMatch && inclusiveMatch.id, 'day59', 'findMatchingRateCard: a :59 end time is inclusive of that exact minute');
+
+  var endsAt4pm = [{ id: 'day00', days: [false,true,false,false,false,false,false], startMin: 0, endMin: 960 }]; // ends 4:00 PM exactly, not :59
+  var mon4pmExact = new Date(2026, 6, 6, 16, 0, 0);
+  t.assertEqual(RateEngine.findMatchingRateCard(endsAt4pm, mon4pmExact), null, 'findMatchingRateCard: an end time NOT ending in :59 stays exclusive at the boundary');
 });
 </script>
 
@@ -603,6 +1031,7 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(v1.actualPrice, 13.78, 'processVisit: actual price from Price Amt');
   t.assertEqual(v1.bracketName, 'Weekday Day', 'processVisit: bracket name from matched card');
   t.assertEqual(v1.isValidated, false, 'processVisit: Transient is not validated');
+  t.assertEqual(v1.bandUpToMin, 120, 'processVisit: bandUpToMin identifies which band matched (90 min falls in the 60-120 band)');
 
   var v2 = RateEngine.processVisit(row({'Is Special Event Rate': 'True'}), rateCards, noEb, 24);
   t.assertEqual(v2.excluded, 'special_event', 'processVisit: special event visit excluded');
@@ -617,11 +1046,24 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(v5.isValidated, true, 'processVisit: Partially Covered counts as validated');
   t.assertEqual(v5.validationAmt, 5, 'processVisit: validation amount parsed');
   t.assertEqual(v5.gpv, 8.78, 'processVisit: GPV parsed');
+  t.assertEqual(v5.validationType, 'partial', 'processVisit: "Partially Covered" maps to validationType partial');
+  t.assertEqual(v5.hasGpv, true, 'processVisit: a partial validation has a real (non-blank) GPV Amt');
+  t.assertEqual(v5.hasValidationAmt, true, 'processVisit: a partial validation has a real (non-blank) Validation Amt — this is why it counts in BOTH the GPV and Validation reports');
+
+  var v5b = RateEngine.processVisit(row({'Visit Coverage Type': 'Validation (Fully Covered)', 'Validation Amt': '$13.78', 'GPV Amt': '$0.00'}), rateCards, noEb, 24);
+  t.assertEqual(v5b.validationType, 'full', 'processVisit: "Fully Covered" maps to validationType full');
+  t.assertEqual(v5b.hasGpv, true, 'processVisit: a literal $0.00 GPV Amt is still present (not blank), so it still counts as a visit');
+  t.assertEqual(v5b.gpv, 0, 'processVisit: but its parsed GPV value is 0, contributing nothing to GPV dollar totals');
+
+  var v5c = RateEngine.processVisit(row({'Visit Coverage Type': 'Transient (No Coverage)', 'Validation Amt': '', 'GPV Amt': '$5.74'}), rateCards, noEb, 24);
+  t.assertEqual(v5c.hasValidationAmt, false, 'processVisit: a blank Validation Amt cell means this visit never counts in the Validation report');
+  t.assertEqual(v5c.validationType, null, 'processVisit: non-validated visits have a null validationType');
 
   var eb = { enabled: true, days:[false,true,true,true,true,true,false], entryStartMin:360, entryEndMin:540, exitCondition:'after', exitMin:960, price: 3 };
   var v6 = RateEngine.processVisit(row({'Visit Start At': '07:00:00 AM', 'Visit Exit  Event At': '05:00:00 PM'}), rateCards, eb, 24);
   t.assertEqual(v6.staticPrice, 3, 'processVisit: Early Bird overrides duration band pricing');
   t.assertEqual(v6.bracketName, 'Early Bird', 'processVisit: Early Bird sets its own bracket name');
+  t.assertEqual(v6.bandUpToMin, null, 'processVisit: Early Bird visits have no band, bandUpToMin is null');
 
   var v7 = RateEngine.processVisit(row({'Visit Coverage Type': 'Some Unrecognized Value'}), rateCards, noEb, 24);
   t.assertEqual(v7.isValidated, false, 'processVisit: unrecognized coverage type fails safe as not validated');
@@ -680,6 +1122,153 @@ window.__engineTestCases.push(function(t){
 
 <script>
 window.__engineTestCases.push(function(t){
+  function visit(overrides) {
+    return Object.assign({
+      excluded: null, bracketName: 'Day', entryDate: new Date(2026, 6, 6, 10, 0, 0), // Monday
+      durationMin: 90, bandUpToMin: 120, staticPrice: 10, actualPrice: 12, gpv: 12, hasGpv: true,
+      validationAmt: 0, hasValidationAmt: false, validationType: null, isValidated: false
+    }, overrides);
+  }
+
+  var dayCard = {
+    name: 'Day', startMin: 240, endMin: 960, days: [false,true,true,true,true,true,false],
+    bands: [{ rate: 5, upToMin: 60 }, { rate: 10, upToMin: 120 }]
+  };
+  var visits = [
+    visit({}), // Monday, band 120, gpv 12 — counts
+    visit({ entryDate: new Date(2026, 6, 7, 10, 0, 0) }), // Tuesday, band 120 — counts
+    visit({ gpv: 0, hasGpv: false }), // Monday, band 120, but GPV Amt is blank — must NOT count
+    visit({ bandUpToMin: 60, staticPrice: 5, durationMin: 30 }) // Monday, band 60 — counts in the OTHER row
+  ];
+
+  var report = RateEngine.buildRateReport(visits, [dayCard], { enabled: false });
+  t.assertEqual(report.sections.length, 1, 'buildRateReport: one section per rate card when Early Bird is disabled');
+
+  var day = report.sections[0];
+  t.assertEqual(day.name, 'Day', 'buildRateReport: section name matches the card name');
+  t.assertEqual(day.startMin, 240, 'buildRateReport: section carries the card\'s startMin for display formatting');
+  t.assertEqual(day.activeDays, [1, 2, 3, 4, 5], 'buildRateReport: active days are exactly the card\'s configured (weekday) days, Mon-first order');
+  t.assertEqual(day.rows.length, 2, 'buildRateReport: one row per band');
+
+  var band60 = day.rows.find(function(r){ return r.upToMin === 60; });
+  var band120 = day.rows.find(function(r){ return r.upToMin === 120; });
+  t.assertEqual(band60.startingMin, 0, 'buildRateReport: the first row\'s Starting (min) defaults to 0 when the card has no explicit startingMin');
+  t.assertEqual(band120.startingMin, 60, 'buildRateReport: a later row\'s Starting (min) is the previous row\'s Up to (minutes)');
+  t.assertEqual(band120.countByDay[1], 1, 'buildRateReport: Monday count for the 120 band excludes the gpv=0 visit');
+  t.assertEqual(band120.countByDay[2], 1, 'buildRateReport: Tuesday count for the 120 band');
+  t.assertEqual(band120.staticByDay[1], 10, 'buildRateReport: Monday static-price sum for the 120 band');
+  t.assertEqual(band120.actualByDay[1], 12, 'buildRateReport: Monday actual-price sum for the 120 band');
+  t.assertEqual(band120.varianceByDay[1], 2, 'buildRateReport: Monday variance for the 120 band (12 actual - 10 static)');
+  t.assertEqual(Math.round(band120.upliftPctByDay[1]), 20, 'buildRateReport: Monday uplift % for the 120 band (2/10*100 = 20%)');
+  t.assertEqual(band120.totalCount, 2, 'buildRateReport: 120 band row total count across all active days (Monday + Tuesday)');
+  t.assertEqual(band120.totalStatic, 20, 'buildRateReport: 120 band row total static (10+10)');
+  t.assertEqual(band120.totalActual, 24, 'buildRateReport: 120 band row total actual (12+12)');
+  t.assertEqual(band120.totalVariance, 4, 'buildRateReport: 120 band row total variance (24-20)');
+  t.assertEqual(Math.round(band120.totalUpliftPct), 20, 'buildRateReport: 120 band row total uplift % (4/20*100 = 20%)');
+  t.assertEqual(band60.countByDay[1], 1, 'buildRateReport: the 60 band gets its own visit, not merged with the 120 band');
+
+  // A duration shorter than Band 1's startingMin (15) isn't a reportable band on its
+  // own — no synthetic row is created, and a visit that short just has no matching row.
+  var cardWithGrace = {
+    name: 'Weekend', startMin: 0, endMin: 1439, days: [true,false,false,false,false,false,true],
+    bands: [{ rate: 8, startingMin: 15, upToMin: 1440 }]
+  };
+  var freeVisit = { excluded: null, bracketName: 'Weekend', entryDate: new Date(2026, 6, 4, 10, 0, 0), // Saturday
+    durationMin: 5, bandUpToMin: 15, staticPrice: 0, actualPrice: 0, gpv: 3, hasGpv: true, validationAmt: 0, isValidated: false };
+  var reportWithGrace = RateEngine.buildRateReport([freeVisit], [cardWithGrace], { enabled: false });
+  var weekendSection = reportWithGrace.sections[0];
+  t.assertEqual(weekendSection.rows.length, 1, 'buildRateReport: only the real configured band becomes a row — no "up to 15 min" phantom band');
+  t.assertEqual(weekendSection.rows[0].upToMin, 1440, 'buildRateReport: the one row is the card\'s real band');
+  t.assertEqual(weekendSection.rows[0].startingMin, 15, 'buildRateReport: that row\'s Starting (min) comes from the card\'s configured startingMin');
+  t.assertEqual(weekendSection.rows[0].countByDay[6], 0, 'buildRateReport: a visit shorter than startingMin has no matching row and is silently uncounted');
+
+  // Early Bird section, when enabled, comes first and has exactly one row.
+  var ebVisit = { excluded: null, bracketName: 'Early Bird', entryDate: new Date(2026, 6, 6, 7, 0, 0),
+    durationMin: 120, bandUpToMin: null, staticPrice: 3, actualPrice: 3, gpv: 3, hasGpv: true, validationAmt: 0, isValidated: false };
+  var earlyBird = { enabled: true, days: [false,true,true,true,true,true,false], entryStartMin: 360, entryEndMin: 540, price: 3 };
+  var reportWithEb = RateEngine.buildRateReport([ebVisit].concat(visits), [dayCard], earlyBird);
+  t.assertEqual(reportWithEb.sections.length, 2, 'buildRateReport: Early Bird adds its own section');
+  t.assertEqual(reportWithEb.sections[0].name, 'Early Bird', 'buildRateReport: Early Bird section comes first');
+  t.assertEqual(reportWithEb.sections[0].rows.length, 1, 'buildRateReport: Early Bird has exactly one row (no duration bands)');
+  t.assertEqual(reportWithEb.sections[0].rows[0].upToMin, null, 'buildRateReport: Early Bird\'s row has no upToMin');
+  t.assertEqual(reportWithEb.sections[0].rows[0].startingMin, null, 'buildRateReport: Early Bird\'s row has no Starting (min) either');
+  t.assertEqual(reportWithEb.sections[0].rows[0].countByDay[1], 1, 'buildRateReport: Early Bird visit counted on its own day');
+
+  // Excluded visits (special_event/over_cutoff/no_matching_rate_card) never reach any section.
+  var excludedVisit = { excluded: 'over_cutoff', actualPrice: 50 };
+  var reportIgnoresExcluded = RateEngine.buildRateReport([excludedVisit].concat(visits), [dayCard], { enabled: false });
+  t.assertEqual(reportIgnoresExcluded.sections[0].rows.reduce(function(sum, r){ return sum + r.countByDay[1] + r.countByDay[2]; }, 0), 3, 'buildRateReport: excluded visits do not appear in any section (count matches the 3 qualifying visits: Monday band60, Monday band120, Tuesday band120)');
+
+  // Per-category summary + grand total wrap-up.
+  t.assertEqual(report.summary.rows.length, 1, 'buildRateReport: one summary row per section');
+  var daySummary = report.summary.rows[0];
+  t.assertEqual(daySummary.name, 'Day', 'buildRateReport: summary row named after its section');
+  t.assertEqual(daySummary.staticTotal, 25, 'buildRateReport: Day summary static total (10+10+5 across the 3 qualifying visits)');
+  t.assertEqual(daySummary.actualTotal, 36, 'buildRateReport: Day summary actual total (12+12+12 across the 3 qualifying visits)');
+  t.assertEqual(daySummary.variance, 11, 'buildRateReport: Day summary variance (36 actual - 25 static)');
+  t.assertEqual(Math.round(daySummary.upliftPct), 44, 'buildRateReport: Day summary uplift % (11/25*100 = 44%)');
+  t.assertEqual(report.summary.total.staticTotal, daySummary.staticTotal, 'buildRateReport: grand total matches the single section\'s total when there\'s only one section');
+  t.assertEqual(report.summary.total.variance, daySummary.variance, 'buildRateReport: grand total variance matches when there\'s only one section');
+
+  // Average ticket price per category.
+  t.assertEqual(daySummary.count, 3, 'buildRateReport: Day summary count is the 3 qualifying visits');
+  t.assertEqual(Math.round(daySummary.avgStatic * 100) / 100, 8.33, 'buildRateReport: Day average traditional ticket (25/3)');
+  t.assertEqual(daySummary.avgActual, 12, 'buildRateReport: Day average AI ticket (36/3)');
+  t.assertEqual(Math.round(daySummary.avgVariance * 100) / 100, 3.67, 'buildRateReport: Day average ticket variance (12 - 8.33)');
+  t.assertEqual(Math.round(daySummary.avgUpliftPct), 44, 'buildRateReport: Day average ticket uplift % matches the overall uplift % (ratios are preserved when both sides divide by the same count)');
+  t.assertEqual(report.summary.total.avgActual, daySummary.avgActual, 'buildRateReport: grand total average ticket matches when there\'s only one section');
+
+  // A section with zero qualifying visits has a null average (not a divide-by-zero NaN).
+  var emptyCard = { name: 'Unused', startMin: 0, endMin: 1439, days: [true,true,true,true,true,true,true], bands: [{ rate: 5, upToMin: 1440 }] };
+  var emptyReport = RateEngine.buildRateReport([], [emptyCard], { enabled: false });
+  t.assertEqual(emptyReport.summary.rows[0].count, 0, 'buildRateReport: a section with no visits has count 0');
+  t.assertEqual(emptyReport.summary.rows[0].avgStatic, null, 'buildRateReport: average ticket is null (not NaN) when there are no visits');
+  t.assertEqual(emptyReport.summary.total.avgActual, null, 'buildRateReport: grand total average is also null when nothing qualifies anywhere');
+
+  // Regression: a rate card with a blank Name field must still match its own
+  // visits. processVisit falls back to bracketName 'Unnamed' for a blank
+  // name — buildRateReport has to apply that exact same fallback, or every
+  // visit for that card silently fails to match its own section.
+  var unnamedCard = { name: '', startMin: 0, endMin: 1439, days: [true,true,true,true,true,true,true], bands: [{ rate: 5, upToMin: 1440 }] };
+  var unnamedVisit = { excluded: null, bracketName: 'Unnamed', entryDate: new Date(2026, 6, 6, 10, 0, 0),
+    durationMin: 30, bandUpToMin: 1440, staticPrice: 5, actualPrice: 6, gpv: 6, hasGpv: true, validationAmt: 0, isValidated: false };
+  var unnamedReport = RateEngine.buildRateReport([unnamedVisit], [unnamedCard], { enabled: false });
+  t.assertEqual(unnamedReport.sections[0].name, 'Unnamed', 'buildRateReport: a blank card Name renders its section as "Unnamed"');
+  t.assertEqual(unnamedReport.sections[0].rows[0].countByDay[1], 1, 'buildRateReport: a blank-Name card\'s visits DO match its own section (not silently dropped)');
+
+  // The Validation pool: a separate, parallel run of the same algorithm against
+  // Validation Amt instead of GPV Amt — a partial validation visit qualifies for
+  // BOTH pools independently (it has a real GPV portion AND a real Validation
+  // portion), a fully-covered visit only qualifies for the Validation pool.
+  var mixedVisits = [
+    { excluded: null, bracketName: 'Day', entryDate: new Date(2026, 6, 6, 10, 0, 0), durationMin: 90, bandUpToMin: 120,
+      staticPrice: 10, actualPrice: 8, gpv: 8, hasGpv: true, validationAmt: 5, hasValidationAmt: true, validationType: 'partial', isValidated: true },
+    { excluded: null, bracketName: 'Day', entryDate: new Date(2026, 6, 6, 11, 0, 0), durationMin: 90, bandUpToMin: 120,
+      staticPrice: 10, actualPrice: 13.78, gpv: 13.78, hasGpv: true, validationAmt: 0, hasValidationAmt: false, validationType: null, isValidated: false },
+    { excluded: null, bracketName: 'Day', entryDate: new Date(2026, 6, 6, 12, 0, 0), durationMin: 90, bandUpToMin: 120,
+      staticPrice: 10, actualPrice: 0, gpv: 0, hasGpv: false, validationAmt: 13.78, hasValidationAmt: true, validationType: 'full', isValidated: true }
+  ];
+  var gpvOnlyReport = RateEngine.buildRateReport(mixedVisits, [dayCard], { enabled: false });
+  t.assertEqual(gpvOnlyReport.sections[0].rows.find(function(r){ return r.upToMin === 120; }).totalCount, 2, 'buildRateReport: default (GPV) pool counts the partial-validation and the plain-transient visits, not the fully-covered one');
+
+  var validationReport = RateEngine.buildRateReport(mixedVisits, [dayCard], { enabled: false }, {
+    qualifies: function(v){ return v.hasValidationAmt && (v.validationType === 'full' || v.validationType === 'partial'); },
+    actualField: 'validationAmt'
+  });
+  var validationRow = validationReport.sections[0].rows.find(function(r){ return r.upToMin === 120; });
+  t.assertEqual(validationRow.totalCount, 2, 'buildRateReport: Validation pool counts the partial-validation and the fully-covered visits, not the plain-transient one');
+  t.assertEqual(validationRow.totalActual, 18.78, 'buildRateReport: Validation pool sums validationAmt (5 + 13.78), not actualPrice');
+
+  var fullOnlyReport = RateEngine.buildRateReport(mixedVisits, [dayCard], { enabled: false }, {
+    qualifies: function(v){ return v.hasValidationAmt && v.validationType === 'full'; },
+    actualField: 'validationAmt'
+  });
+  t.assertEqual(fullOnlyReport.sections[0].rows.find(function(r){ return r.upToMin === 120; }).totalCount, 1, 'buildRateReport: toggling off "partial" (qualifies checks only full) drops the partial-validation visit from the Validation pool');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
   var cards = [
     { id:'day', name:'Weekday Day', days:[false,true,true,true,true,true,false], startMin:240, endMin:960, bands:[{rate:5,upToMin:1440}] },
     { id:'weekend', name:'Weekend', days:[true,false,false,false,false,false,true], startMin:0, endMin:1440, bands:[{rate:8,upToMin:1440}] }
@@ -719,14 +1308,170 @@ window.__engineTestCases.push(function(t){
 </script>
 
 <script>
+window.__engineTestCases.push(function(t){
+  function row(overrides) {
+    return Object.assign({
+      'Visit Start Date': '7/6/2026', 'Visit Start At': '10:00:00 AM', // Monday
+      'Visit Exit  Event Date': '7/6/2026', 'Visit Exit  Event At': '11:00:00 AM', // 60 min
+      'Is Special Event Rate': 'False', 'Price Amt': '$5.00', 'Visit Coverage Type': 'Transient (No Coverage)'
+    }, overrides);
+  }
+  var dayCard = { id: 'day', name: 'Day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960 };
+  var noEb = { enabled: false, days: [false,false,false,false,false,false,false], entryStartMin: 0, entryEndMin: 0, exitCondition: 'after', exitMin: 0, price: 0 };
+
+  // These fixtures use tiny sample sizes to isolate modal-price/free-zone
+  // logic, so minBracketSupport is relaxed to 1 — the default (5) smoothing
+  // threshold gets its own dedicated tests further down.
+  var loose = { minBracketSupport: 1 };
+
+  var rows = [
+    row({}), row({}), row({ 'Price Amt': '$6.00' }), // 3x 60-min bracket, modal price $5
+    row({ 'Visit Exit  Event At': '11:35:00 AM', 'Price Amt': '$10.00' }), // 95 min -> 90-min bracket, $10
+    row({ 'Visit Exit  Event At': '11:35:00 AM', 'Price Amt': '$10.00' })
+  ];
+  var result = RateEngine.inferRateBands(rows, [dayCard], noEb, null, loose);
+  t.assertEqual(result.cardBands.Day.length, 2, 'inferRateBands: two duration brackets become two bands');
+  t.assertEqual(result.cardBands.Day[0].rate, 5, 'inferRateBands: modal price wins over an outlier ($6 vs $5)');
+  t.assertEqual(result.cardBands.Day[0].startingMin, 0, 'inferRateBands: no free zone detected, Band 1 starts at 0');
+  t.assertEqual(result.cardBands.Day[0].upToMin, 90, 'inferRateBands: Band 1 ends where the next bracket (90 min) begins');
+  t.assertEqual(result.cardBands.Day[1].rate, 10, 'inferRateBands: second bracket\'s modal price');
+  t.assertEqual(result.perCardCounts.Day, 5, 'inferRateBands: counts every qualifying visit matched to the card');
+
+  // A leading $0 bracket collapses into Band 1's startingMin instead of its own band.
+  var freeRows = [
+    row({ 'Visit Exit  Event At': '10:10:00 AM', 'Price Amt': '$0.00' }), // 10 min -> bracket 0, free
+    row({ 'Visit Exit  Event At': '10:40:00 AM', 'Price Amt': '$5.00' }), // 40 min -> bracket 30, $5
+    row({ 'Price Amt': '$5.00' }) // 60 min -> bracket 60, still $5 (consolidates with the 30 bracket)
+  ];
+  var freeResult = RateEngine.inferRateBands(freeRows, [dayCard], noEb, null, loose);
+  t.assertEqual(freeResult.cardBands.Day.length, 1, 'inferRateBands: a free leading bracket does not become its own band');
+  t.assertEqual(freeResult.cardBands.Day[0].startingMin, 30, 'inferRateBands: the free bracket\'s width becomes Band 1\'s startingMin');
+  t.assertEqual(freeResult.cardBands.Day[0].rate, 5, 'inferRateBands: Band 1 is the first real (non-free) price');
+
+  // Special Event rows are excluded from inference; Visit Coverage Type is not
+  // read by this feature at all (unlike the live Compare calculation).
+  var excludedRows = [
+    row({ 'Is Special Event Rate': 'True', 'Price Amt': '$999.00' }),
+    row({ 'Visit Coverage Type': 'Validation (Fully Covered)', 'Price Amt': '$0.00' }),
+    row({}), row({})
+  ];
+  var excludedResult = RateEngine.inferRateBands(excludedRows, [dayCard], noEb, null, loose);
+  t.assertEqual(excludedResult.perCardCounts.Day, 3, 'inferRateBands: only the special-event row is excluded; Visit Coverage Type has no effect');
+
+  // Early Bird visits are priced separately (a single flat price), not banded.
+  var eb = { enabled: true, days: [false,true,false,false,false,false,false], entryStartMin: 360, entryEndMin: 540, exitCondition: 'after', exitMin: 0, price: 0 };
+  var ebRows = [
+    row({ 'Visit Start At': '7:00:00 AM', 'Price Amt': '$3.00' }),
+    row({ 'Visit Start At': '7:00:00 AM', 'Price Amt': '$3.00' }),
+    row({}) // still in Day window
+  ];
+  var ebResult = RateEngine.inferRateBands(ebRows, [dayCard], eb, null, loose);
+  t.assertEqual(ebResult.earlyBirdPrice, 3, 'inferRateBands: Early Bird price is the modal price among matched EB visits');
+  t.assertEqual(ebResult.earlyBirdCount, 2, 'inferRateBands: Early Bird visits are counted separately from card visits');
+  t.assertEqual(ebResult.cardBands.Day.length, 1, 'inferRateBands: the non-EB visit still lands in the Day card');
+
+  // A bracket with too little support (below the default minBracketSupport
+  // of 5) doesn't spawn its own band — its visits get absorbed once the gap
+  // closes, rather than fragmenting the ladder from a couple of outliers.
+  var smoothingRows = [];
+  for (var i = 0; i < 6; i++) smoothingRows.push(row({ 'Price Amt': '$5.00' })); // 6x 60-min, $5
+  smoothingRows.push(row({ 'Visit Exit  Event At': '11:30:00 AM', 'Price Amt': '$20.00' })); // 1x 90-min, $20 (sparse)
+  smoothingRows.push(row({ 'Visit Exit  Event At': '11:30:00 AM', 'Price Amt': '$20.00' })); // 2x total, still below threshold
+  var smoothed = RateEngine.inferRateBands(smoothingRows, [dayCard], noEb); // default minBracketSupport
+  t.assertEqual(smoothed.cardBands.Day.length, 1, 'inferRateBands: a low-support bracket (2 visits) is dropped, leaving one clean band');
+  t.assertEqual(smoothed.cardBands.Day[0].rate, 5, 'inferRateBands: the surviving band keeps the well-supported price');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  function row(overrides) {
+    return Object.assign({
+      'Visit Start Date': '7/6/2026', 'Visit Start At': '10:00:00 AM', // Monday
+      'Visit Exit  Event Date': '7/6/2026', 'Visit Exit  Event At': '11:00:00 AM', // 60 min
+      'Is Special Event Rate': 'False', 'Price Amt': '$5.00'
+    }, overrides);
+  }
+  function withDate(base, mmddyyyy) { return row(Object.assign({ 'Visit Start Date': mmddyyyy, 'Visit Exit  Event Date': mmddyyyy }, base)); }
+  var noEb = { enabled: false, days: [false,false,false,false,false,false,false], entryStartMin: 0, entryEndMin: 0, exitCondition: 'after', exitMin: 0, price: 0 };
+
+  // No configured rate cards at all (a blank Setup tab) — everything falls
+  // through to Discover's day-of-week clustering. 7/6, 7/7, 7/8/2026 are
+  // Monday, Tuesday, Wednesday.
+  var rows = [];
+  for (var i = 0; i < 6; i++) rows.push(withDate({ 'Price Amt': '$10.00' }, '7/6/2026')); // Monday, $10
+  for (var i = 0; i < 6; i++) rows.push(withDate({ 'Price Amt': '$10.00' }, '7/7/2026')); // Tuesday, $10 (same ladder as Monday)
+  for (var i = 0; i < 6; i++) rows.push(withDate({ 'Price Amt': '$20.00' }, '7/8/2026')); // Wednesday, $20 (different)
+
+  var result = RateEngine.inferRateBands(rows, [], noEb); // no existing cards, default All-Day
+  t.assertEqual(result.newCards.length, 2, 'inferRateBands: Monday+Tuesday (same ladder) merge; Wednesday (different ladder) stays separate');
+  var monTue = result.newCards.find(function(c){ return c.days[1] && c.days[2]; });
+  var wed = result.newCards.find(function(c){ return c.days[3]; });
+  t.assertEqual(monTue.name, 'Mon, Tue', 'inferRateBands: auto-name is a comma-joined day list when no weekday/weekend/all-days preset matches');
+  t.assertEqual(monTue.bands[0].rate, 10, 'inferRateBands: merged Mon+Tue card carries their shared rate');
+  t.assertEqual(monTue.startMin, 0, 'inferRateBands: All-Day window spans the full day (startMin 0)');
+  t.assertEqual(monTue.endMin, 1439, 'inferRateBands: All-Day window spans the full day (endMin 1439)');
+  t.assertEqual(wed.name, 'Wed', 'inferRateBands: a day that doesn\'t match any group\'s ladder gets its own single-day card');
+  t.assertEqual(wed.bands[0].rate, 20, 'inferRateBands: Wednesday keeps its own distinct rate');
+
+  // Two days whose ladders agree on every REAL price break, but whose final
+  // (catch-all) band ends up with a different raw number just because one
+  // day happened to record a longer stay, still merge — and the merged
+  // ladder is recomputed from BOTH days' combined visits, not just one day's.
+  var tailRows = [];
+  for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Price Amt': '$10.00' }, '7/6/2026')); // Mon, 60min $10
+  for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Visit Exit  Event At': '6:00:00 PM', 'Price Amt': '$20.00' }, '7/6/2026')); // Mon, 480min $20
+  for (var i = 0; i < 6; i++) tailRows.push(row({ 'Visit Start Date': '7/6/2026', 'Visit Exit  Event Date': '7/7/2026', 'Visit Exit  Event At': '11:00:00 AM', 'Price Amt': '$20.00' })); // Mon 10am -> Tue 11am = 1500min $20 (long tail)
+  for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Price Amt': '$10.00' }, '7/7/2026')); // Tue, 60min $10
+  for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Visit Exit  Event At': '6:00:00 PM', 'Price Amt': '$20.00' }, '7/7/2026')); // Tue, 480min $20 (no long-tail visits at all)
+
+  var tailResult = RateEngine.inferRateBands(tailRows, [], noEb);
+  t.assertEqual(tailResult.newCards.length, 1, 'inferRateBands: Mon and Tue merge despite Monday alone having a longer recorded max stay');
+  var merged = tailResult.newCards[0];
+  t.assertEqual(merged.days[1] && merged.days[2], true, 'inferRateBands: merged card covers both Monday and Tuesday');
+  t.assertEqual(merged.bands.length, 2, 'inferRateBands: merged ladder has the two real bands (60min $10, 480min+ $20)');
+  t.assertEqual(merged.bands[0].upToMin, 480, 'inferRateBands: the real (non-final) band boundary is unchanged by the merge');
+  t.assertEqual(merged.bands[1].rate, 20, 'inferRateBands: the final band keeps the shared rate');
+
+  // Day/Evening windows (All-Day unchecked) classify by time of day, and the
+  // resulting card names get a window prefix once there's more than one window.
+  var windowRows = [];
+  for (var i = 0; i < 6; i++) windowRows.push(row({ 'Price Amt': '$8.00' })); // 10am Monday, $8 (falls in Day window)
+  for (var i = 0; i < 6; i++) windowRows.push(row({ 'Visit Start At': '8:00:00 PM', 'Visit Exit  Event At': '9:00:00 PM', 'Price Amt': '$15.00' })); // 8pm Monday, $15 (Evening window)
+  var discoverSetup = { allDay: false, dayStartMin: 360, eveningStartMin: 1080 }; // 6am / 6pm
+  var windowResult = RateEngine.inferRateBands(windowRows, [], noEb, discoverSetup);
+  t.assertEqual(windowResult.newCards.length, 2, 'inferRateBands: Day and Evening windows produce separate cards');
+  var dayCardResult = windowResult.newCards.find(function(c){ return c.name.indexOf('Day') === 0; });
+  var eveCardResult = windowResult.newCards.find(function(c){ return c.name.indexOf('Evening') === 0; });
+  t.assertEqual(dayCardResult.name, 'Day — Mon', 'inferRateBands: Day window card is prefixed since more than one window exists');
+  t.assertEqual(dayCardResult.startMin, 360, 'inferRateBands: Day window card carries the configured dayStartMin');
+  t.assertEqual(dayCardResult.endMin, 1080, 'inferRateBands: Day window card ends at eveningStartMin');
+  t.assertEqual(eveCardResult.name, 'Evening — Mon', 'inferRateBands: Evening window card is prefixed too');
+  t.assertEqual(eveCardResult.startMin, 1080, 'inferRateBands: Evening window card starts at eveningStartMin');
+  t.assertEqual(eveCardResult.endMin, 360, 'inferRateBands: Evening window card wraps to dayStartMin (overnight-style span)');
+
+  // A day-of-week bucket with too little total data to infer anything (below
+  // minBracketSupport) contributes no card, and is reported as insufficient
+  // rather than silently vanishing.
+  var sparseRows = [row({ 'Visit Start Date': '7/12/2026', 'Visit Exit  Event Date': '7/12/2026' })]; // one lone Sunday visit
+  var sparseResult = RateEngine.inferRateBands(sparseRows, [], noEb);
+  t.assertEqual(sparseResult.newCards.length, 0, 'inferRateBands: a single visit is not enough data to create a card');
+  t.assertEqual(sparseResult.insufficientDataCount, 1, 'inferRateBands: the lone visit is counted as insufficient data, not silently dropped');
+});
+</script>
+
+<script>
 var state = {
   rateCards: [],
   earlyBird: { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 },
   cutoffHours: 24,
-  ignoreValidations: false,
   visits: [],
+  historicalRows: [],
+  discoverSetup: { allDay: true, dayStartMin: 360, eveningStartMin: 1080 },
+  processedVisits: null,
   compareResult: null,
-  unrolledBrackets: new Set()
+  includeFullValidations: true,
+  includePartialValidations: true
 };
 var nextCardId = 1;
 var DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun display order, values index into card.days (0=Sun..6=Sat, matches Date.getDay())
@@ -944,10 +1689,12 @@ function renderRateCard(card, index) {
     if (e.target.dataset.timefield) {
       card[e.target.dataset.timefield] = readTimeDropdowns(div, e.target.dataset.timefield);
       renderRateCards();
+      runComparison();
     }
     if (e.target.dataset.day !== undefined) {
       card.days[Number(e.target.dataset.day)] = e.target.checked;
       renderRateCards();
+      runComparison();
     }
     if (e.target.dataset.bandIdx !== undefined) {
       var bandIdx = Number(e.target.dataset.bandIdx);
@@ -959,12 +1706,14 @@ function renderRateCard(card, index) {
         // Only refresh the grid (not the whole card list) so typing a
         // multi-digit rate doesn't steal focus after every keystroke.
         renderCoverageGrid();
+        runComparison();
       } else if (bandField === 'startingMin') {
         // Only Band 1's Starting (min) is ever editable, and nothing else
         // derives its displayed value from it, so no re-render is needed —
         // just recheck Band 1's own "minutes left in the day" warning.
         card.bands[bandIdx].startingMin = Number(e.target.value);
         refreshBandWarning(div, card, bandIdx);
+        runComparison();
       } else {
         card.bands[bandIdx][bandField] = Number(e.target.value);
         // Up to (minutes) feeds the NEXT band's read-only Starting (min)
@@ -981,6 +1730,7 @@ function renderRateCard(card, index) {
         // and the NEXT band's depends on it too (its Starting == this Up to).
         refreshBandWarning(div, card, bandIdx);
         refreshBandWarning(div, card, bandIdx + 1);
+        runComparison();
       }
     }
   });
@@ -989,17 +1739,21 @@ function renderRateCard(card, index) {
     if (e.target.dataset.action === 'delete') {
       state.rateCards = state.rateCards.filter(function(c){ return c.id !== card.id; });
       renderRateCards();
+      runComparison();
     } else if (e.target.dataset.action === 'addBand') {
       card.bands.push(newBand());
       renderRateCards();
+      runComparison();
     } else if (e.target.dataset.bandRemove !== undefined) {
       card.bands.splice(Number(e.target.dataset.bandRemove), 1);
       renderRateCards();
+      runComparison();
     } else if (e.target.dataset.preset) {
       if (e.target.dataset.preset === 'all') card.days = [true,true,true,true,true,true,true];
       if (e.target.dataset.preset === 'weekday') card.days = [false,true,true,true,true,true,false];
       if (e.target.dataset.preset === 'weekend') card.days = [true,false,false,false,false,false,true];
       renderRateCards();
+      runComparison();
     }
   });
 
@@ -1009,6 +1763,7 @@ function renderRateCard(card, index) {
 document.getElementById('addCardBtn').addEventListener('click', function(){
   state.rateCards.push(newRateCard());
   renderRateCards();
+  runComparison();
 });
 state.rateCards.push(newRateCard());
 renderRateCards();
@@ -1035,7 +1790,7 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(grid[1][20].count, 0, 'coverage: hour 8pm on Monday is not covered');
   t.assertEqual(grid[2][5].count, 0, 'coverage: Tuesday is not covered by a Monday-only card');
 
-  var mondayRow = document.querySelectorAll('#coverageGrid .coverageRow')[1];
+  var mondayRow = document.querySelectorAll('#coverageGrid .coverageRow')[0];
   var coveredCells = mondayRow.querySelectorAll('.coverageCell.covered');
   t.assertEqual(coveredCells.length, 12, 'coverage: Monday row shows 12 green (single-coverage) hours (4am-4pm)');
 
@@ -1049,7 +1804,7 @@ window.__engineTestCases.push(function(t){
     { id:'b', name:'Card B', days:[false,true,false,false,false,false,false], startMin:600, endMin:720, bands:[{rate:1,upToMin:1440}] }
   ];
   renderRateCards();
-  var mondayRowConflict = document.querySelectorAll('#coverageGrid .coverageRow')[1];
+  var mondayRowConflict = document.querySelectorAll('#coverageGrid .coverageRow')[0];
   var conflictCells = mondayRowConflict.querySelectorAll('.coverageCell.conflict');
   t.assertEqual(conflictCells.length, 2, 'coverage: the 2 overlapping hours (10am-12pm) render as conflict (red) cells');
 
@@ -1143,7 +1898,7 @@ window.__engineTestCases.push(function(t){
   var deleteBtn = findBtn(cardDiv(1), function(b){ return b.dataset.action === 'delete'; });
   t.assertEqual(!!deleteBtn, true, 'UI: a card added via + Add Rate Card DOES have a section Delete button');
   deleteBtn.click();
-  t.assertEqual(state.rateCards.length, 2, 'UI: Delete removes a section card');
+  t.assertEqual(state.rateCards.length, 1, 'UI: Delete removes a section card');
 
   // Regression: new cards must default to a valid <input type="time"> value (23:59, not 24:00).
   var freshCard = newRateCard();
@@ -1164,36 +1919,59 @@ window.__engineTestCases.push(function(t){
 </script>
 
 <script>
+// Early Bird has exactly one underlying setting (state.earlyBird), but two
+// places to view/edit it — Setup's original controls (prefix "eb") and
+// Discover's mirrored copy (prefix "discoverEb"). Every render/wire pass
+// touches both prefixes so editing either one keeps both in sync.
+var EB_PREFIXES = ['eb', 'discoverEb'];
 function renderEarlyBird() {
-  document.getElementById('ebEnabled').checked = state.earlyBird.enabled;
-  document.getElementById('ebEntryStartGroup').innerHTML = timeDropdownsHtml(state.earlyBird.entryStartMin, 'entryStartMin');
-  document.getElementById('ebEntryEndGroup').innerHTML = timeDropdownsHtml(state.earlyBird.entryEndMin, 'entryEndMin');
-  document.getElementById('ebExitCondition').value = state.earlyBird.exitCondition;
-  document.getElementById('ebExitTimeGroup').innerHTML = timeDropdownsHtml(state.earlyBird.exitMin, 'exitMin');
-  document.getElementById('ebPrice').value = state.earlyBird.price;
-  var dayBoxes = document.getElementById('ebDayBoxes');
-  dayBoxes.innerHTML = '';
-  DAY_ORDER.forEach(function(dayIdx){
-    var lbl = document.createElement('label');
-    lbl.innerHTML = '<input type="checkbox" data-eb-day="' + dayIdx + '" ' + (state.earlyBird.days[dayIdx] ? 'checked' : '') + '>' + DAY_LABELS[dayIdx];
-    dayBoxes.appendChild(lbl);
+  EB_PREFIXES.forEach(function(prefix){
+    document.getElementById(prefix + 'Enabled').checked = state.earlyBird.enabled;
+    document.getElementById(prefix + 'EntryStartGroup').innerHTML = timeDropdownsHtml(state.earlyBird.entryStartMin, 'entryStartMin');
+    document.getElementById(prefix + 'EntryEndGroup').innerHTML = timeDropdownsHtml(state.earlyBird.entryEndMin, 'entryEndMin');
+    document.getElementById(prefix + 'ExitCondition').value = state.earlyBird.exitCondition;
+    document.getElementById(prefix + 'ExitTimeGroup').innerHTML = timeDropdownsHtml(state.earlyBird.exitMin, 'exitMin');
+    document.getElementById(prefix + 'Price').value = state.earlyBird.price;
+    var dayBoxes = document.getElementById(prefix + 'DayBoxes');
+    dayBoxes.innerHTML = '';
+    DAY_ORDER.forEach(function(dayIdx){
+      var lbl = document.createElement('label');
+      lbl.innerHTML = '<input type="checkbox" data-eb-day="' + dayIdx + '" ' + (state.earlyBird.days[dayIdx] ? 'checked' : '') + '>' + DAY_LABELS[dayIdx];
+      dayBoxes.appendChild(lbl);
+    });
+    document.getElementById(prefix + 'Card').style.display = state.earlyBird.enabled ? 'block' : 'none';
   });
-  document.getElementById('ebCard').style.display = state.earlyBird.enabled ? 'block' : 'none';
 }
-document.getElementById('ebEnabled').addEventListener('change', function(e){
-  state.earlyBird.enabled = e.target.checked;
-  renderEarlyBird();
-});
-document.getElementById('ebCard').addEventListener('input', function(e){
-  if (e.target.dataset.timefield) {
-    state.earlyBird[e.target.dataset.timefield] = readTimeDropdowns(e.target.parentElement, e.target.dataset.timefield);
-  }
-});
-document.getElementById('ebExitCondition').addEventListener('change', function(e){ state.earlyBird.exitCondition = e.target.value; });
-document.getElementById('ebPrice').addEventListener('input', function(e){ state.earlyBird.price = Number(e.target.value); });
-document.getElementById('ebDayBoxes').addEventListener('change', function(e){
-  if (e.target.dataset.ebDay !== undefined) state.earlyBird.days[Number(e.target.dataset.ebDay)] = e.target.checked;
-});
+function wireEarlyBirdControls(prefix) {
+  document.getElementById(prefix + 'Enabled').addEventListener('change', function(e){
+    state.earlyBird.enabled = e.target.checked;
+    renderEarlyBird();
+    runComparison();
+  });
+  document.getElementById(prefix + 'Card').addEventListener('input', function(e){
+    if (e.target.dataset.timefield) {
+      state.earlyBird[e.target.dataset.timefield] = readTimeDropdowns(e.target.parentElement, e.target.dataset.timefield);
+      renderEarlyBird();
+      runComparison();
+    }
+  });
+  document.getElementById(prefix + 'ExitCondition').addEventListener('change', function(e){
+    state.earlyBird.exitCondition = e.target.value;
+    renderEarlyBird();
+    runComparison();
+  });
+  document.getElementById(prefix + 'Price').addEventListener('input', function(e){
+    state.earlyBird.price = Number(e.target.value);
+    renderEarlyBird();
+    runComparison();
+  });
+  document.getElementById(prefix + 'DayBoxes').addEventListener('change', function(e){
+    if (e.target.dataset.ebDay !== undefined) state.earlyBird.days[Number(e.target.dataset.ebDay)] = e.target.checked;
+    renderEarlyBird();
+    runComparison();
+  });
+}
+EB_PREFIXES.forEach(wireEarlyBirdControls);
 renderEarlyBird();
 </script>
 
@@ -1262,6 +2040,21 @@ window.__engineTestCases.push(function(t){
 
   document.getElementById('ebEnabled').checked = true;
   document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
+
+  // Discover's mirrored Early Bird copy reflects the same state — it's the
+  // same setting, just editable from either tab.
+  t.assertEqual(document.getElementById('discoverEbEnabled').checked, true, 'EB UI: Discover\'s Early Bird toggle mirrors Setup\'s');
+  t.assertEqual(document.getElementById('discoverEbCard').style.display, 'block', 'EB UI: Discover\'s Early Bird card visibility mirrors Setup\'s');
+  t.assertEqual(document.getElementById('discoverEbPrice').value, '5', 'EB UI: Discover\'s Early Bird price mirrors Setup\'s');
+  var discoverEsHour = document.getElementById('discoverEbEntryStartGroup').querySelector('select[data-timepart="hour"]');
+  t.assertEqual(discoverEsHour.value, '6', 'EB UI: Discover\'s Early Bird entry start time mirrors Setup\'s');
+
+  // Editing from the Discover copy updates Setup's copy right back.
+  var discoverPriceInput = document.getElementById('discoverEbPrice');
+  discoverPriceInput.value = '9';
+  discoverPriceInput.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.earlyBird.price, 9, 'EB UI: editing Discover\'s price updates the shared state');
+  t.assertEqual(document.getElementById('ebPrice').value, '9', 'EB UI: editing Discover\'s price mirrors back to Setup\'s copy');
 });
 </script>
 
@@ -1269,7 +2062,7 @@ window.__engineTestCases.push(function(t){
 document.getElementById('cutoffHours').addEventListener('input', function(e){
   // An emptied field parses as 0, which would silently exclude every visit
   // as over-cutoff — ignore it and keep the last valid value instead.
-  if (e.target.value !== '') state.cutoffHours = Number(e.target.value);
+  if (e.target.value !== '') { state.cutoffHours = Number(e.target.value); runComparison(); }
 });
 
 var dropZone = document.getElementById('dropZone');
@@ -1286,8 +2079,6 @@ fileInput.addEventListener('change', function(e){
   handleFile(e.target.files[0]);
   e.target.value = ''; // allow re-selecting the same file (e.g. a corrected re-export) to fire change again
 });
-document.getElementById('loadToCompareBtn').addEventListener('click', function(){ runComparison(); });
-
 // applyVisitFileBuffer is the synchronous core (state update, status text,
 // triggering comparison) factored out of the async FileReader callback so it
 // can be tested directly without waiting on a real async file read.
@@ -1305,6 +2096,93 @@ function handleFile(file) {
   };
   reader.readAsArrayBuffer(file);
 }
+
+var historicalDropZone = document.getElementById('historicalDropZone');
+var historicalFileInput = document.getElementById('historicalFileInput');
+historicalDropZone.addEventListener('click', function(){ historicalFileInput.click(); });
+historicalDropZone.addEventListener('dragover', function(e){ e.preventDefault(); historicalDropZone.style.background = 'var(--r1)'; });
+historicalDropZone.addEventListener('dragleave', function(){ historicalDropZone.style.background = 'var(--surface)'; });
+historicalDropZone.addEventListener('drop', function(e){
+  e.preventDefault();
+  historicalDropZone.style.background = 'var(--surface)';
+  handleHistoricalFile(e.dataTransfer.files[0]);
+});
+historicalFileInput.addEventListener('change', function(e){
+  handleHistoricalFile(e.target.files[0]);
+  e.target.value = '';
+});
+function applyHistoricalFileBuffer(arrayBuffer, filename) {
+  state.historicalRows = RateEngine.parseVisitFile(arrayBuffer);
+  document.getElementById('historicalDropState').textContent = filename + ' (' + state.historicalRows.length + ' visits)';
+  document.getElementById('inferStatus').textContent = '';
+}
+function handleHistoricalFile(file) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    applyHistoricalFileBuffer(e.target.result, file.name);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderDiscoverSetup() {
+  document.getElementById('discoverAllDay').checked = state.discoverSetup.allDay;
+  document.getElementById('discoverDayStartGroup').innerHTML = timeDropdownsHtml(state.discoverSetup.dayStartMin, 'dayStartMin');
+  document.getElementById('discoverEveningStartGroup').innerHTML = timeDropdownsHtml(state.discoverSetup.eveningStartMin, 'eveningStartMin');
+  var disabled = state.discoverSetup.allDay;
+  document.querySelectorAll('#discoverQuickSetupCard select').forEach(function(s){ s.disabled = disabled; });
+}
+document.getElementById('discoverAllDay').addEventListener('change', function(e){
+  state.discoverSetup.allDay = e.target.checked;
+  renderDiscoverSetup();
+});
+document.getElementById('discoverQuickSetupCard').addEventListener('input', function(e){
+  if (e.target.dataset.timefield) {
+    state.discoverSetup[e.target.dataset.timefield] = readTimeDropdowns(e.target.parentElement, e.target.dataset.timefield);
+  }
+});
+renderDiscoverSetup();
+
+document.getElementById('inferBandsBtn').addEventListener('click', function(){
+  var statusEl = document.getElementById('inferStatus');
+  if (!state.historicalRows.length) { statusEl.textContent = 'Drop a historical visit CSV first.'; return; }
+  var result = RateEngine.inferRateBands(state.historicalRows, state.rateCards, state.earlyBird, state.discoverSetup);
+
+  var cardsFilled = 0;
+  state.rateCards.forEach(function(card){
+    var name = card.name || 'Unnamed';
+    if (result.cardBands[name] && result.cardBands[name].length) {
+      card.bands = result.cardBands[name];
+      cardsFilled++;
+    }
+  });
+
+  if (result.newCards.length) {
+    var isBlankStarter = state.rateCards.length === 1 &&
+      !state.rateCards[0].name &&
+      state.rateCards[0].days.every(function(d){ return !d; }) &&
+      state.rateCards[0].bands.length === 1 &&
+      state.rateCards[0].bands[0].rate === null;
+    if (isBlankStarter) state.rateCards = [];
+    result.newCards.forEach(function(c){
+      state.rateCards.push({ id: 'rc' + (nextCardId++), name: c.name, days: c.days, startMin: c.startMin, endMin: c.endMin, bands: c.bands });
+    });
+  }
+
+  if (result.earlyBirdPrice !== null) state.earlyBird.price = result.earlyBirdPrice;
+
+  renderRateCards();
+  renderEarlyBird();
+  runComparison();
+
+  var parts = [];
+  if (cardsFilled) parts.push('filled bands for ' + cardsFilled + ' existing rate card' + (cardsFilled === 1 ? '' : 's'));
+  if (result.newCards.length) parts.push('created ' + result.newCards.length + ' new rate card' + (result.newCards.length === 1 ? '' : 's'));
+  if (result.earlyBirdCount) parts.push('Early Bird price ($' + result.earlyBirdPrice.toFixed(2) + ' from ' + result.earlyBirdCount + ' visits)');
+  var summary = parts.length ? parts.join(', ') + '.' : 'No visits matched any window.';
+  if (result.insufficientDataCount) summary += ' ' + result.insufficientDataCount + ' visits had too little data to confidently infer a rate.';
+  statusEl.textContent = summary;
+});
 </script>
 
 <script>
@@ -1313,22 +2191,154 @@ function runComparison() {
   var processed = state.visits.map(function(row){
     return RateEngine.processVisit(row, state.rateCards, state.earlyBird, state.cutoffHours);
   });
+  state.processedVisits = processed;
   state.compareResult = RateEngine.aggregateByBracket(processed);
   renderCompare();
 }
 
-function fmtMoney(n) { return '$' + n.toFixed(2); }
+function fmtNumber(n) {
+  var sign = n < 0 ? '-' : '';
+  var parts = Math.abs(n).toFixed(0).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return sign + parts[0];
+}
+function fmtMoney(n) {
+  var sign = n < 0 ? '-' : '';
+  var parts = Math.abs(n).toFixed(2).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return sign + '$' + parts[0] + '.' + parts[1];
+}
 function fmtPercent(p) { return p === null ? '—' : (p >= 0 ? '+' : '') + p.toFixed(1) + '%'; }
-function fmtDelta(staticTotal, actualTotal, delta, pctStatic, pctActual) {
-  return fmtMoney(delta) + '  (' + fmtPercent(pctStatic) + ' of static / ' + fmtPercent(pctActual) + ' of actual)';
+
+function formatTimeWindow(startMin, endMin) {
+  function fmt(min) {
+    var p = partsFromMinutes(min);
+    return p.hour + ':' + (p.minute < 10 ? '0' + p.minute : p.minute) + ' ' + p.ampm;
+  }
+  return fmt(startMin) + '–' + fmt(endMin);
+}
+
+function formatBand(startingMin, upToMin) {
+  return upToMin === null ? '—' : (startingMin + '-' + upToMin);
+}
+
+function renderReportTable(title, section, cellFn, totalCellFn) {
+  var html = '<div class="bracketMeta" style="margin-top:10px;font-weight:700">' + escapeHtml(title) + '</div>';
+  html += '<table class="reportTable"><thead><tr>' +
+    '<th>Time Window</th><th>Band</th><th>Rate</th>' +
+    section.activeDays.map(function(d){ return '<th>' + DAY_LABELS[d] + '</th>'; }).join('') +
+    '<th>Total</th>' +
+    '</tr></thead><tbody>';
+  section.rows.forEach(function(row, idx){
+    html += '<tr class="' + (idx % 2 === 0 ? 'even' : 'odd') + '">' +
+      '<td>' + escapeHtml(formatTimeWindow(section.startMin, section.endMin)) + '</td>' +
+      '<td>' + formatBand(row.startingMin, row.upToMin) + '</td>' +
+      '<td>' + fmtMoney(row.rate) + '</td>' +
+      section.activeDays.map(function(d){ return '<td>' + cellFn(row, d) + '</td>'; }).join('') +
+      '<td style="font-weight:700">' + totalCellFn(row) + '</td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function formatVarianceCell(diff, upliftPct) {
+  return (diff >= 0 ? '+' : '') + fmtMoney(diff) + ' (' + (upliftPct === null ? '—' : fmtPercent(upliftPct)) + ')';
+}
+
+function appendReportBlock(report, el) {
+  report.sections.forEach(function(section){
+    var card = document.createElement('div');
+    card.className = 'card';
+    var html =
+      '<div class="bracketName">' + escapeHtml(section.name) + '</div>' +
+      '<div class="bracketMeta">' + escapeHtml(formatTimeWindow(section.startMin, section.endMin)) + '</div>';
+    html += renderReportTable('Count', section, function(row, d){ return fmtNumber(row.countByDay[d]); }, function(row){ return fmtNumber(row.totalCount); });
+    html += renderReportTable('Traditional PARCs ($)', section, function(row, d){ return fmtMoney(row.staticByDay[d]); }, function(row){ return fmtMoney(row.totalStatic); });
+    html += renderReportTable('AI Pricing ($)', section, function(row, d){ return fmtMoney(row.actualByDay[d]); }, function(row){ return fmtMoney(row.totalActual); });
+    html += renderReportTable('Variance', section, function(row, d){ return formatVarianceCell(row.varianceByDay[d], row.upliftPctByDay[d]); }, function(row){ return formatVarianceCell(row.totalVariance, row.totalUpliftPct); });
+    card.innerHTML = html;
+    el.appendChild(card);
+  });
+
+  var summaryCard = document.createElement('div');
+  summaryCard.className = 'card';
+  var summaryHtml = '<div class="bracketName">Summary</div>' +
+    '<table class="reportTable summaryTable"><thead><tr><th>Category</th><th>Traditional PARCs</th><th>AI Pricing</th><th>Variance</th><th>Uplift %</th></tr></thead><tbody>';
+  report.summary.rows.forEach(function(r, idx){
+    summaryHtml += '<tr class="' + (idx % 2 === 0 ? 'even' : 'odd') + '">' +
+      '<td>' + escapeHtml(r.name) + '</td>' +
+      '<td>' + fmtMoney(r.staticTotal) + '</td>' +
+      '<td>' + fmtMoney(r.actualTotal) + '</td>' +
+      '<td>' + (r.variance >= 0 ? '+' : '') + fmtMoney(r.variance) + '</td>' +
+      '<td>' + (r.upliftPct === null ? '—' : fmtPercent(r.upliftPct)) + '</td>' +
+      '</tr>';
+  });
+  var t = report.summary.total;
+  summaryHtml += '<tr style="font-weight:700;border-top:2px solid var(--line)">' +
+    '<td>Total</td>' +
+    '<td>' + fmtMoney(t.staticTotal) + '</td>' +
+    '<td>' + fmtMoney(t.actualTotal) + '</td>' +
+    '<td>' + (t.variance >= 0 ? '+' : '') + fmtMoney(t.variance) + '</td>' +
+    '<td>' + (t.upliftPct === null ? '—' : fmtPercent(t.upliftPct)) + '</td>' +
+    '</tr>';
+
+  summaryHtml += '<tr class="spacerRow"><td colspan="5">&nbsp;</td></tr>';
+  summaryHtml += '<tr><th>Category</th><th>Avg Traditional (ATP)</th><th>Avg AI (ATP)</th><th>Avg Variance</th><th>Avg Uplift %</th></tr>';
+  report.summary.rows.forEach(function(r, idx){
+    summaryHtml += '<tr class="' + (idx % 2 === 0 ? 'even' : 'odd') + '">' +
+      '<td>' + escapeHtml(r.name) + '</td>' +
+      '<td>' + (r.avgStatic === null ? '—' : fmtMoney(r.avgStatic)) + '</td>' +
+      '<td>' + (r.avgActual === null ? '—' : fmtMoney(r.avgActual)) + '</td>' +
+      '<td>' + (r.avgVariance === null ? '—' : (r.avgVariance >= 0 ? '+' : '') + fmtMoney(r.avgVariance)) + '</td>' +
+      '<td>' + (r.avgUpliftPct === null ? '—' : fmtPercent(r.avgUpliftPct)) + '</td>' +
+      '</tr>';
+  });
+  summaryHtml += '<tr style="font-weight:700;border-top:2px solid var(--line)">' +
+    '<td>Total</td>' +
+    '<td>' + (t.avgStatic === null ? '—' : fmtMoney(t.avgStatic)) + '</td>' +
+    '<td>' + (t.avgActual === null ? '—' : fmtMoney(t.avgActual)) + '</td>' +
+    '<td>' + (t.avgVariance === null ? '—' : (t.avgVariance >= 0 ? '+' : '') + fmtMoney(t.avgVariance)) + '</td>' +
+    '<td>' + (t.avgUpliftPct === null ? '—' : fmtPercent(t.avgUpliftPct)) + '</td>' +
+    '</tr>';
+
+  summaryHtml += '</tbody></table>';
+  summaryCard.innerHTML = summaryHtml;
+  el.appendChild(summaryCard);
+}
+
+function renderRateReport() {
+  var el = document.getElementById('rateReport');
+  el.innerHTML = '';
+  if (!state.processedVisits) return;
+
+  var hasValidationData = state.processedVisits.some(function(v){ return !v.excluded && v.hasValidationAmt; });
+  var showValidationPool = hasValidationData && (state.includeFullValidations || state.includePartialValidations);
+
+  if (showValidationPool) el.insertAdjacentHTML('beforeend', '<h3>GPV Pool</h3>');
+  var gpvReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird);
+  appendReportBlock(gpvReport, el);
+
+  if (showValidationPool) {
+    el.insertAdjacentHTML('beforeend', '<h3>Validation Pool</h3>');
+    var validationReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird, {
+      qualifies: function(v){
+        if (!v.hasValidationAmt) return false;
+        if (v.validationType === 'full') return state.includeFullValidations;
+        if (v.validationType === 'partial') return state.includePartialValidations;
+        return false;
+      },
+      actualField: 'validationAmt'
+    });
+    appendReportBlock(validationReport, el);
+  }
 }
 
 function renderCompare() {
   var result = state.compareResult;
   var totalsEl = document.getElementById('totalsSummary');
-  var bracketListEl = document.getElementById('bracketList');
   var excludedEl = document.getElementById('excludedSummary');
-  if (!result) { totalsEl.innerHTML = ''; bracketListEl.innerHTML = ''; excludedEl.innerHTML = ''; return; }
+  if (!result) { totalsEl.innerHTML = ''; document.getElementById('rateReport').innerHTML = ''; excludedEl.innerHTML = ''; return; }
 
   totalsEl.innerHTML =
     '<div class="statRow">' +
@@ -1338,61 +2348,34 @@ function renderCompare() {
     '<div class="card statCard"><div class="statLabel">Percent</div><div class="statValue">' + fmtPercent(result.totals.percentOfStatic) + '</div></div>' +
     '</div>';
 
-  bracketListEl.innerHTML = '';
-  result.brackets.forEach(function(b){
-    var div = document.createElement('div');
-    div.className = 'card';
-    var html =
-      '<div class="bracketName">' + escapeHtml(b.name) + '</div>' +
-      '<div class="bracketMeta">Visits: ' + b.count + ' &nbsp; Static: ' + fmtMoney(b.staticTotal) + ' &nbsp; Actual: ' + fmtMoney(b.actualTotal) +
-      ' &nbsp; Validation: ' + fmtMoney(b.validationTotal) + ' &nbsp; Delta: ' + fmtDelta(b.staticTotal, b.actualTotal, b.delta, b.percentOfStatic, b.percentOfActual) + '</div>';
-
-    b.dayList.forEach(function(d, idx){
-      var dayKey = b.name + '|' + d.dayIndex;
-      var dayName = DAY_LABELS[d.dayIndex];
-      var dayUnrolled = state.unrolledBrackets.has(dayKey);
-      html += '<div class="dayRow ' + (idx % 2 === 0 ? 'even' : 'odd') + '">' +
-        '<strong>' + dayName + '</strong> Visits: ' + d.count + ' &nbsp; ' +
-        'Static: ' + fmtMoney(d.staticTotal) + ' &nbsp; Actual: ' + fmtMoney(d.actualTotal) + ' &nbsp; ' +
-        'Delta: ' + fmtDelta(d.staticTotal, d.actualTotal, d.delta, d.percentOfStatic, d.percentOfActual);
-      if (!state.ignoreValidations) {
-        html += ' &nbsp; <button class="btnGhost" data-bracket="' + escapeHtml(dayKey) + '">' + (dayUnrolled ? 'Roll up ▲' : 'Unroll ▾') + '</button>';
-        if (dayUnrolled) {
-          html += '<div class="dayRowDetail">' +
-            'Normal (' + d.normal.count + '): Static ' + fmtMoney(d.normal.staticTotal) + ', Actual ' + fmtMoney(d.normal.actualTotal) + '<br>' +
-            'Validation (' + d.validation.count + '): Static ' + fmtMoney(d.validation.staticTotal) + ', Actual ' + fmtMoney(d.validation.actualTotal) + ', Validation ' + fmtMoney(d.validation.validationTotal) +
-            '</div>';
-        }
-      } else {
-        html += ' &nbsp; <button class="btnGhost" disabled style="opacity:.4;cursor:not-allowed">Unroll ▾</button>';
-      }
-      html += '</div>';
-    });
-
-    div.innerHTML = html;
-    bracketListEl.appendChild(div);
-  });
+  renderRateReport();
 
   excludedEl.innerHTML =
     '<div class="card">' +
-    'Excluded — Special Event: ' + result.excluded.special_event.count + ' visits, ' + fmtMoney(result.excluded.special_event.actualTotal) + '<br>' +
-    'Excluded — Over cutoff: ' + result.excluded.over_cutoff.count + ' visits, ' + fmtMoney(result.excluded.over_cutoff.actualTotal) + '<br>' +
-    'Excluded — No matching rate card: ' + result.excluded.no_matching_rate_card.count + ' visits, ' + fmtMoney(result.excluded.no_matching_rate_card.actualTotal) +
+    'Excluded — Special Event: ' + fmtNumber(result.excluded.special_event.count) + ' visits, ' + fmtMoney(result.excluded.special_event.actualTotal) + '<br>' +
+    'Excluded — Over cutoff: ' + fmtNumber(result.excluded.over_cutoff.count) + ' visits, ' + fmtMoney(result.excluded.over_cutoff.actualTotal) + '<br>' +
+    'Excluded — No matching rate card: ' + fmtNumber(result.excluded.no_matching_rate_card.count) + ' visits, ' + fmtMoney(result.excluded.no_matching_rate_card.actualTotal) +
     '</div>';
 }
 
-document.getElementById('bracketList').addEventListener('click', function(e){
-  if (e.target.dataset.bracket) {
-    var name = e.target.dataset.bracket;
-    if (state.unrolledBrackets.has(name)) state.unrolledBrackets.delete(name);
-    else state.unrolledBrackets.add(name);
-    renderCompare();
-  }
+document.getElementById('includeFullValidations').addEventListener('change', function(e){
+  state.includeFullValidations = e.target.checked;
+  renderRateReport();
 });
+document.getElementById('includePartialValidations').addEventListener('change', function(e){
+  state.includePartialValidations = e.target.checked;
+  renderRateReport();
+});
+</script>
 
-document.getElementById('ignoreValidationsToggle').addEventListener('change', function(e){
-  state.ignoreValidations = e.target.checked;
-  renderCompare();
+<script>
+window.__engineTestCases.push(function(t){
+  t.assertEqual(fmtMoney(1234.5), '$1,234.50', 'fmtMoney: adds a thousands comma');
+  t.assertEqual(fmtMoney(12), '$12.00', 'fmtMoney: no comma needed under 1000');
+  t.assertEqual(fmtMoney(-2500), '-$2,500.00', 'fmtMoney: negative sign stays outside the $ and comma stays in the right place');
+  t.assertEqual(fmtMoney(1234567.89), '$1,234,567.89', 'fmtMoney: multiple thousands separators');
+  t.assertEqual(fmtNumber(12345), '12,345', 'fmtNumber: adds a thousands comma to a plain count');
+  t.assertEqual(fmtNumber(42), '42', 'fmtNumber: no comma needed under 1000');
 });
 </script>
 
@@ -1402,45 +2385,74 @@ window.__engineTestCases.push(function(t){
     bands:[{rate:10,upToMin:1440}] }];
   state.earlyBird = { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 };
   state.cutoffHours = 24;
-  state.ignoreValidations = false;
-  state.unrolledBrackets = new Set();
 
   // 7/1/2026 is a Wednesday (dayIndex 3), 7/2/2026 is a Thursday (dayIndex 4)
   var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
   var row1 = "1\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$12.00\t\t$12.00\tTransient (No Coverage)";
   var row2 = "2\t7/2/2026\t10:00:00 AM\t7/2/2026\t11:30:00 AM\tFalse\t$12.00\t\t$12.00\tTransient (No Coverage)";
-  applyVisitFileBuffer(t.utf16leEncode(header + row1 + "\n" + row2), 'test.csv');
+  var row3 = "3\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$12.00\t\t$0.00\tTransient (No Coverage)"; // gpv=0, must not count
+  applyVisitFileBuffer(t.utf16leEncode(header + row1 + "\n" + row2 + "\n" + row3), 'test.csv');
 
   var bracket = state.compareResult.brackets[0];
   t.assertEqual(bracket.dayList.length, 2, 'runComparison: bracket has two day-of-week entries, sorted Wed then Thu');
-  t.assertEqual(bracket.dayList[0].dayIndex, 3, 'runComparison: first day entry keyed to Wednesday (dayIndex 3)');
-  t.assertEqual(bracket.dayList[0].count, 1, 'runComparison: Wednesday day-row has one visit');
   t.assertEqual(Math.round(bracket.percentOfStatic), 20, 'runComparison: bracket percentOfStatic = (24-20)/20*100 = 20%');
-  t.assertEqual(Math.round(bracket.percentOfActual * 10) / 10, 16.7, 'runComparison: bracket percentOfActual = (24-20)/24*100 ~= 16.7%');
 
   var statCards = document.querySelectorAll('#totalsSummary .statCard');
   t.assertEqual(statCards.length, 4, 'renderCompare: 4 summary bubbles rendered (Traditional Rate Revenue, AI Revenue, Variance, Percent)');
-  t.assertEqual(statCards[0].textContent.indexOf('Traditional Rate Revenue') > -1, true, 'renderCompare: first bubble labeled Traditional Rate Revenue');
-  t.assertEqual(statCards[0].textContent.indexOf('$20.00') > -1, true, 'renderCompare: first bubble shows the static total');
-  t.assertEqual(statCards[1].textContent.indexOf('$24.00') > -1, true, 'renderCompare: AI Revenue bubble shows the actual total');
+  t.assertEqual(statCards[0].textContent.indexOf('$30.00') > -1, true, 'renderCompare: first bubble\'s static total is $30 (3 visits x $10, including the gpv=0 one) — bubbles are unaffected by the report\'s gpv filter');
 
-  var dayRows = document.querySelectorAll('#bracketList .dayRow');
-  t.assertEqual(dayRows.length, 2, 'renderCompare: one .dayRow element per day-of-week entry');
-  t.assertEqual(dayRows[0].classList.contains('even'), true, 'renderCompare: first day row is zebra-striped even');
-  t.assertEqual(dayRows[1].classList.contains('odd'), true, 'renderCompare: second day row is zebra-striped odd');
+  var cards = document.querySelectorAll('#rateReport .card');
+  t.assertEqual(cards.length, 2, 'renderRateReport: one section card for the one rate card, plus a Summary card (Early Bird disabled)');
+  var sectionCard = cards[0];
+  var summaryCard = cards[1];
+  t.assertEqual(sectionCard.textContent.indexOf('Day') > -1, true, 'renderRateReport: section labeled with the card name');
 
-  var dayUnrollBtn = document.querySelector('#bracketList button[data-bracket="Day|3"]');
-  t.assertEqual(!!dayUnrollBtn, true, 'renderCompare: day-row unroll button uses compound bracket|dayIndex key');
-  dayUnrollBtn.click();
-  t.assertEqual(state.unrolledBrackets.has('Day|3'), true, 'unroll: day-row toggle uses compound key');
-  t.assertEqual(document.querySelectorAll('#bracketList').length > 0 && document.getElementById('bracketList').textContent.indexOf('Normal') > -1, true, 'unroll: expanded day-row shows Normal/Validation split');
+  var tables = sectionCard.querySelectorAll('table.reportTable');
+  t.assertEqual(tables.length, 4, 'renderRateReport: 4 tables per section (Count / Traditional PARCs / AI Pricing / Variance)');
 
-  var ignoreToggle = document.getElementById('ignoreValidationsToggle');
-  ignoreToggle.checked = true;
-  ignoreToggle.dispatchEvent(new Event('change', {bubbles:true}));
-  t.assertEqual(!!document.querySelector('#bracketList button[disabled]'), true, 'ignoreValidations: day-row Unroll button disabled when validations ignored');
-  ignoreToggle.checked = false;
-  ignoreToggle.dispatchEvent(new Event('change', {bubbles:true}));
+  var countTable = tables[0];
+  var headerCells = countTable.querySelectorAll('thead th');
+  // Time Window, Band, Rate, then one column per active day (all 7), then Total = 11 total.
+  t.assertEqual(headerCells.length, 11, 'renderRateReport: Count table has Time Window + Band + Rate + 7 day columns + Total');
+  t.assertEqual(headerCells[1].textContent, 'Band', 'renderRateReport: Starting (min)/Up to (min) are merged into one Band column');
+  t.assertEqual(headerCells[10].textContent, 'Total', 'renderRateReport: last column is the per-row Total');
+
+  var countRow = countTable.querySelector('tbody tr');
+  var countCells = countRow.querySelectorAll('td');
+  t.assertEqual(countCells[1].textContent, '0-1440', 'renderRateReport: Band column shows "startingMin-upToMin", same style as a time range');
+  t.assertEqual(countCells[2].textContent, '$10.00', 'renderRateReport: Rate column shows the band\'s rate');
+  t.assertEqual(countCells[10].textContent, '2', 'renderRateReport: Count table\'s Total column sums the row\'s day counts (Wed + Thu qualifying visits, excluding the gpv=0 one)');
+
+  var aiTable = tables[2];
+  var aiRow = aiTable.querySelector('tbody tr');
+  var aiCells = aiRow.querySelectorAll('td');
+  var totalAi = Array.prototype.slice.call(aiCells).slice(3, -1).reduce(function(sum, cell){
+    var n = Number(cell.textContent.replace(/[$,]/g, ''));
+    return sum + (isNaN(n) ? 0 : n);
+  }, 0);
+  t.assertEqual(totalAi, 24, 'renderRateReport: AI Pricing table sums actualPrice across days, excluding the gpv=0 visit');
+  t.assertEqual(aiCells[10].textContent, '$24.00', 'renderRateReport: AI Pricing table\'s Total column matches the sum across days');
+
+  var varianceTable = tables[3];
+  var varianceRow = varianceTable.querySelector('tbody tr');
+  var varianceCells = varianceRow.querySelectorAll('td');
+  var varianceText = Array.prototype.slice.call(varianceCells).slice(3).map(function(c){ return c.textContent; }).join(' ');
+  t.assertEqual(varianceText.indexOf('+$2.00') > -1, true, 'renderRateReport: Variance table shows the per-day $ uplift (12 actual - 10 static = +$2.00)');
+  t.assertEqual(varianceText.indexOf('20.0%') > -1, true, 'renderRateReport: Variance table shows the per-day uplift % alongside the $ amount');
+
+  t.assertEqual(summaryCard.textContent.indexOf('Summary') > -1, true, 'renderRateReport: a Summary card is rendered after all sections');
+  t.assertEqual(summaryCard.textContent.indexOf('Total') > -1, true, 'renderRateReport: Summary card includes a grand Total row');
+  var summaryRows = summaryCard.querySelectorAll('table.summaryTable tbody tr');
+  // Day row + Total row + spacer row + ATP header row + ATP Day row + ATP Total row = 6.
+  t.assertEqual(summaryRows.length, 6, 'renderRateReport: Summary table has the category/Total rows, a spacer, and the ATP (average ticket price) rows below it');
+  t.assertEqual(summaryCard.textContent.indexOf('ATP') > -1, true, 'renderRateReport: Average Ticket Price section is labeled ATP');
+  var atpRow = summaryRows[4];
+  var atpCells = atpRow.querySelectorAll('td');
+  t.assertEqual(atpCells[1].textContent, '$10.00', 'renderRateReport: ATP row shows the average traditional ticket price (20/2 qualifying visits)');
+  t.assertEqual(atpCells[2].textContent, '$12.00', 'renderRateReport: ATP row shows the average AI ticket price (36/3 visits)');
+
+  t.assertEqual(document.getElementById('ignoreValidationsToggle'), null, 'renderCompare: Ignore Validations toggle is removed (validation split deferred)');
+  t.assertEqual(document.getElementById('bracketList'), null, 'renderCompare: old bracketList container is gone, replaced by rateReport');
 });
 </script>
 
@@ -1489,11 +2501,96 @@ window.__engineTestCases.push(function(t){
 
 <script>
 window.__engineTestCases.push(function(t){
-  var btn = document.getElementById('loadToCompareBtn');
-  t.assertEqual(!!btn, true, 'Load to Compare button exists');
-  state.compareResult = null;
-  btn.click();
-  t.assertEqual(state.compareResult !== null, state.visits.length > 0, 'Load to Compare triggers runComparison');
+  state.rateCards = [{ id: 'infday', name: 'Day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960, bands: [{ rate: null, startingMin: 15, upToMin: 60 }] }];
+  state.earlyBird = { enabled: false, days: [false,false,false,false,false,false,false], entryStartMin: 0, entryEndMin: 0, exitCondition: 'after', exitMin: 0, price: 0 };
+  state.discoverSetup = { allDay: true, dayStartMin: 360, eveningStartMin: 1080 };
+  renderRateCards();
+  renderEarlyBird();
+
+  // 7/6/2026 and 7/7/2026 are a Monday and Tuesday. 6 visits, all 60min $5,
+  // to clear the default minBracketSupport (5) threshold.
+  var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
+  var lines = [];
+  for (var i = 0; i < 6; i++) {
+    var day = i % 2 === 0 ? '7/6/2026' : '7/7/2026';
+    lines.push((i + 1) + '\t' + day + '\t10:00:00 AM\t' + day + '\t11:00:00 AM\tFalse\t$5.00\t\t$5.00\tTransient (No Coverage)');
+  }
+  applyHistoricalFileBuffer(t.utf16leEncode(header + lines.join("\n")), 'historical-visits.csv');
+
+  t.assertEqual(state.historicalRows.length, 6, 'historicalDropZone: applyHistoricalFileBuffer parses the file into state.historicalRows');
+  t.assertEqual(document.getElementById('historicalDropState').textContent, 'historical-visits.csv (6 visits)', 'historicalDropZone: status text shows filename and visit count');
+  t.assertEqual(state.rateCards[0].bands[0].rate, null, 'historicalDropZone: dropping the file alone does not touch the rate cards yet');
+
+  document.getElementById('inferBandsBtn').click();
+
+  t.assertEqual(state.rateCards.length, 1, 'inferBandsBtn: no new cards created when every visit matches the existing Day card');
+  t.assertEqual(state.rateCards[0].bands.length, 1, 'inferBandsBtn: applies the inferred band to the matching rate card');
+  t.assertEqual(state.rateCards[0].bands[0].rate, 5, 'inferBandsBtn: inferred rate matches the modal historical price');
+  t.assertEqual(state.rateCards[0].bands[0].upToMin, 90, 'inferBandsBtn: inferred band upper bound comes from the bracket past the observed duration');
+  var rateInput = document.querySelectorAll('#rateCardList .card')[0].querySelector('input[data-band-field="rate"]');
+  t.assertEqual(rateInput.value, '5', 'inferBandsBtn: the re-rendered Setup UI shows the inferred rate');
+  t.assertEqual(document.getElementById('inferStatus').textContent.indexOf('filled bands for 1 existing rate card') > -1, true, 'inferBandsBtn: status line reports how many existing cards were filled');
+
+  state.historicalRows = [];
+  document.getElementById('inferStatus').textContent = '';
+  document.getElementById('inferBandsBtn').click();
+  t.assertEqual(document.getElementById('inferStatus').textContent, 'Drop a historical visit CSV first.', 'inferBandsBtn: clicking with no file loaded shows a guidance message instead of throwing');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  // Blank Setup tab (the untouched single starter card) + a historical file
+  // that spans two distinct day-groups: everything should get built from
+  // scratch, and the blank starter card should not survive alongside the
+  // newly created ones.
+  state.rateCards = [newRateCard()];
+  state.earlyBird = { enabled: false, days: [false,false,false,false,false,false,false], entryStartMin: 0, entryEndMin: 0, exitCondition: 'after', exitMin: 0, price: 0 };
+  state.discoverSetup = { allDay: true, dayStartMin: 360, eveningStartMin: 1080 };
+  renderRateCards();
+  renderEarlyBird();
+
+  var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
+  var lines = [];
+  // 6 Monday visits at $10 (7/6/2026), 6 Wednesday visits at $20 (7/8/2026) — two distinct groups.
+  for (var i = 0; i < 6; i++) lines.push((i + 1) + '\t7/6/2026\t10:00:00 AM\t7/6/2026\t11:00:00 AM\tFalse\t$10.00\t\t$10.00\tTransient (No Coverage)');
+  for (var i = 0; i < 6; i++) lines.push((i + 7) + '\t7/8/2026\t10:00:00 AM\t7/8/2026\t11:00:00 AM\tFalse\t$20.00\t\t$20.00\tTransient (No Coverage)');
+  applyHistoricalFileBuffer(t.utf16leEncode(header + lines.join("\n")), 'blank-start.csv');
+
+  document.getElementById('inferBandsBtn').click();
+
+  t.assertEqual(state.rateCards.length, 2, 'inferBandsBtn: the blank starter card is replaced by the two auto-created cards, not left alongside them');
+  var monCard = state.rateCards.find(function(c){ return c.days[1]; });
+  var wedCard = state.rateCards.find(function(c){ return c.days[3]; });
+  t.assertEqual(monCard.name, 'Mon', 'inferBandsBtn: auto-created card is named from its day set');
+  t.assertEqual(monCard.bands[0].rate, 10, 'inferBandsBtn: auto-created Monday card carries its inferred rate');
+  t.assertEqual(wedCard.bands[0].rate, 20, 'inferBandsBtn: auto-created Wednesday card carries its own distinct inferred rate');
+  t.assertEqual(document.getElementById('inferStatus').textContent.indexOf('created 2 new rate cards') > -1, true, 'inferBandsBtn: status line reports how many new cards were created');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  // Quick Setup: the All-Day checkbox disables/enables the Day/Evening time dropdowns.
+  document.getElementById('discoverAllDay').checked = true;
+  document.getElementById('discoverAllDay').dispatchEvent(new Event('change', {bubbles:true}));
+  var selects = document.querySelectorAll('#discoverQuickSetupCard select');
+  t.assertEqual(selects.length > 0, true, 'Quick Setup: Day/Evening Start Time dropdowns are rendered');
+  t.assertEqual(Array.prototype.every.call(selects, function(s){ return s.disabled; }), true, 'Quick Setup: All-Day checked disables the Day/Evening Start Time dropdowns');
+
+  document.getElementById('discoverAllDay').checked = false;
+  document.getElementById('discoverAllDay').dispatchEvent(new Event('change', {bubbles:true}));
+  t.assertEqual(state.discoverSetup.allDay, false, 'Quick Setup: unchecking All-Day updates state');
+  var selectsAfter = document.querySelectorAll('#discoverQuickSetupCard select');
+  t.assertEqual(Array.prototype.every.call(selectsAfter, function(s){ return !s.disabled; }), true, 'Quick Setup: unchecking All-Day re-enables the Day/Evening Start Time dropdowns');
+
+  var dayStartGroup = document.getElementById('discoverDayStartGroup');
+  var hourSel = dayStartGroup.querySelector('select[data-timefield="dayStartMin"][data-timepart="hour"]');
+  hourSel.value = '7'; hourSel.dispatchEvent(new Event('input', {bubbles:true}));
+  t.assertEqual(state.discoverSetup.dayStartMin, 420, 'Quick Setup: Day Rate Start Time dropdown updates state in minutes');
+
+  document.getElementById('discoverAllDay').checked = true;
+  document.getElementById('discoverAllDay').dispatchEvent(new Event('change', {bubbles:true}));
 });
 </script>
 
