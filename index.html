@@ -690,28 +690,27 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
       var b = Math.floor(v.durationMin / bracketMin) * bracketMin;
       (byBracket[b] = byBracket[b] || []).push(v.price);
     });
+    // A bracket's representative price is the mode among its PAYING (>$0)
+    // visits only. Real exports carry a lot of $0 comp/member-free traffic
+    // spread across every duration, not just short stays — mixing those
+    // into the mode would make $0 win almost everywhere (since Visit
+    // Coverage Type isn't filtered) and drown out what paying customers
+    // actually paid. A bracket needs at least minBracketSupport PAYING
+    // visits to count as a real price point; visits in a dropped bracket
+    // get absorbed into whichever real band ends up spanning that duration
+    // once the gap closes.
+    function paidPrices(b) { return byBracket[b].filter(function(p){ return p > 0; }); }
     var candidates = Object.keys(byBracket)
       .map(Number)
-      .filter(function(b){ return byBracket[b].length >= minBracketSupport; })
+      .filter(function(b){ return paidPrices(b).length >= minBracketSupport; })
       .sort(function(a, b){ return a - b; });
     if (!candidates.length) return [];
-    // A $0 modal price only means anything as a leading free/grace period —
-    // anywhere else in the ladder it's noise (comps, fully-covered
-    // validations that now flow through since Visit Coverage Type isn't
-    // filtered), not a genuine promotional dead zone in the middle of a
-    // stay. Drop any non-leading $0 bracket so its visits get absorbed into
-    // whichever real band ends up spanning that duration once the gap
-    // closes, instead of carving out a bogus interior $0 band.
-    var brackets = candidates.filter(function(b, idx){
-      return idx === 0 || mode(byBracket[b]) !== 0;
-    });
-    if (!brackets.length) return [];
     var bands = [];
-    var curPrice = mode(byBracket[brackets[0]]);
-    for (var i = 1; i < brackets.length; i++) {
-      var price = mode(byBracket[brackets[i]]);
+    var curPrice = mode(paidPrices(candidates[0]));
+    for (var i = 1; i < candidates.length; i++) {
+      var price = mode(paidPrices(candidates[i]));
       if (price !== curPrice) {
-        bands.push({ rate: curPrice, upToMin: brackets[i] });
+        bands.push({ rate: curPrice, upToMin: candidates[i] });
         curPrice = price;
       }
     }
@@ -721,14 +720,12 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
     // last band always covers everything beyond its lower bound).
     bands.push({ rate: curPrice, upToMin: 1440 });
 
-    // A leading $0 band is really a free/grace period, not a billable band —
-    // fold it into Band 1's `startingMin` the same way the Setup tab models
-    // a manually-entered free period, rather than showing a phantom $0 row.
-    var startingMin = 0;
-    if (bands.length > 1 && bands[0].rate === 0) {
-      startingMin = bands[0].upToMin;
-      bands = bands.slice(1);
-    }
+    // The leading free/grace period is whatever duration range never made it
+    // into `candidates` at the very start — either because nobody ever paid
+    // there (a real free period) or there wasn't enough paying data to say
+    // otherwise. If bracket 0 has no visits at all (nothing shorter was ever
+    // observed), there's nothing to fold — Band 1 just starts at 0 as usual.
+    var startingMin = (byBracket[0] && candidates[0] !== 0) ? candidates[0] : 0;
     bands[0] = { rate: bands[0].rate, startingMin: startingMin, upToMin: bands[0].upToMin };
     return bands;
   }
@@ -839,11 +836,18 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
     });
   });
 
+  // Same $0-comp exclusion as consolidate(): a paying visitor's price is the
+  // real signal, not the free/member visits mixed into the same window. Fall
+  // back to the raw (possibly all-$0) set only if literally every match was
+  // a comp — better to report the true modal price than nothing at all.
+  var ebPaidPrices = ebPrices.filter(function(p){ return p > 0; });
+  var earlyBirdModalPrice = ebPrices.length ? mode(ebPaidPrices.length ? ebPaidPrices : ebPrices) : null;
+
   return {
     cardBands: cardBands,
     perCardCounts: perCardCounts,
     newCards: newCards,
-    earlyBirdPrice: ebPrices.length ? mode(ebPrices) : null,
+    earlyBirdPrice: earlyBirdModalPrice,
     earlyBirdCount: ebPrices.length,
     insufficientDataCount: insufficientDataCount
   };
@@ -1444,6 +1448,21 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(midZero.cardBands.Day.length, 1, 'inferRateBands: a non-leading $0 bracket does not fragment the ladder into a $0 band');
   t.assertEqual(midZero.cardBands.Day[0].rate, 10, 'inferRateBands: the real rate on both sides of the $0 noise bracket is preserved as one band');
   t.assertEqual(midZero.cardBands.Day[0].startingMin, 0, 'inferRateBands: no free-period folding happens for a non-leading $0 bracket');
+
+  // A bracket dominated by $0 comp/member visits (e.g. 15 free vs 5 paying)
+  // must still resolve to the PAYING price, not get treated as free/$0 or
+  // dropped, as long as the paying count alone clears minBracketSupport.
+  // Real exports can have $0 traffic at every duration, not just short ones.
+  var heavyCompRows = [];
+  for (var i = 0; i < 6; i++) heavyCompRows.push(row({ 'Price Amt': '$10.00' })); // 60min, $10, all paying
+  for (var i = 0; i < 15; i++) heavyCompRows.push(row({ 'Visit Exit  Event At': '11:30:00 AM', 'Price Amt': '$0.00' })); // 90min, 15 comps
+  for (var i = 0; i < 5; i++) heavyCompRows.push(row({ 'Visit Exit  Event At': '11:30:00 AM', 'Price Amt': '$20.00' })); // 90min, 5 paying at $20
+  for (var i = 0; i < 6; i++) heavyCompRows.push(row({ 'Visit Exit  Event At': '12:30:00 PM', 'Price Amt': '$20.00' })); // 150min, $20
+  var heavyComp = RateEngine.inferRateBands(heavyCompRows, [dayCard], noEb); // default minBracketSupport
+  t.assertEqual(heavyComp.cardBands.Day.length, 2, 'inferRateBands: a bracket that\'s 75% comps still becomes a real band from its 5 paying visits');
+  t.assertEqual(heavyComp.cardBands.Day[0].rate, 10, 'inferRateBands: first band unaffected');
+  t.assertEqual(heavyComp.cardBands.Day[0].upToMin, 90, 'inferRateBands: the 90-min bracket counts as a real price break despite being mostly comps');
+  t.assertEqual(heavyComp.cardBands.Day[1].rate, 20, 'inferRateBands: the bracket\'s rate is the PAYING mode ($20), not $0 despite $0 being the raw majority');
 });
 </script>
 
@@ -2314,20 +2333,6 @@ function formatVarianceCell(diff, upliftPct) {
 }
 
 function appendReportBlock(report, el) {
-  report.sections.forEach(function(section){
-    var card = document.createElement('div');
-    card.className = 'card';
-    var html =
-      '<div class="bracketName">' + escapeHtml(section.name) + '</div>' +
-      '<div class="bracketMeta">' + escapeHtml(formatTimeWindow(section.startMin, section.endMin)) + '</div>';
-    html += renderReportTable('Count', section, function(row, d){ return fmtNumber(row.countByDay[d]); }, function(row){ return fmtNumber(row.totalCount); });
-    html += renderReportTable('Traditional PARCs ($)', section, function(row, d){ return fmtMoney(row.staticByDay[d]); }, function(row){ return fmtMoney(row.totalStatic); });
-    html += renderReportTable('AI Pricing ($)', section, function(row, d){ return fmtMoney(row.actualByDay[d]); }, function(row){ return fmtMoney(row.totalActual); });
-    html += renderReportTable('Variance', section, function(row, d){ return formatVarianceCell(row.varianceByDay[d], row.upliftPctByDay[d]); }, function(row){ return formatVarianceCell(row.totalVariance, row.totalUpliftPct); });
-    card.innerHTML = html;
-    el.appendChild(card);
-  });
-
   var summaryCard = document.createElement('div');
   summaryCard.className = 'card';
   var summaryHtml = '<div class="bracketName">Summary</div>' +
@@ -2372,6 +2377,20 @@ function appendReportBlock(report, el) {
   summaryHtml += '</tbody></table>';
   summaryCard.innerHTML = summaryHtml;
   el.appendChild(summaryCard);
+
+  report.sections.forEach(function(section){
+    var card = document.createElement('div');
+    card.className = 'card';
+    var html =
+      '<div class="bracketName">' + escapeHtml(section.name) + '</div>' +
+      '<div class="bracketMeta">' + escapeHtml(formatTimeWindow(section.startMin, section.endMin)) + '</div>';
+    html += renderReportTable('Count', section, function(row, d){ return fmtNumber(row.countByDay[d]); }, function(row){ return fmtNumber(row.totalCount); });
+    html += renderReportTable('Traditional PARCs ($)', section, function(row, d){ return fmtMoney(row.staticByDay[d]); }, function(row){ return fmtMoney(row.totalStatic); });
+    html += renderReportTable('AI Pricing ($)', section, function(row, d){ return fmtMoney(row.actualByDay[d]); }, function(row){ return fmtMoney(row.totalActual); });
+    html += renderReportTable('Variance', section, function(row, d){ return formatVarianceCell(row.varianceByDay[d], row.upliftPctByDay[d]); }, function(row){ return formatVarianceCell(row.totalVariance, row.totalUpliftPct); });
+    card.innerHTML = html;
+    el.appendChild(card);
+  });
 }
 
 function renderRateReport() {
@@ -2474,8 +2493,8 @@ window.__engineTestCases.push(function(t){
 
   var cards = document.querySelectorAll('#rateReport .card');
   t.assertEqual(cards.length, 2, 'renderRateReport: one section card for the one rate card, plus a Summary card (Early Bird disabled)');
-  var sectionCard = cards[0];
-  var summaryCard = cards[1];
+  var summaryCard = cards[0];
+  var sectionCard = cards[1];
   t.assertEqual(sectionCard.textContent.indexOf('Day') > -1, true, 'renderRateReport: section labeled with the card name');
 
   var tables = sectionCard.querySelectorAll('table.reportTable');
@@ -2511,7 +2530,7 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(varianceText.indexOf('+$2.00') > -1, true, 'renderRateReport: Variance table shows the per-day $ uplift (12 actual - 10 static = +$2.00)');
   t.assertEqual(varianceText.indexOf('20.0%') > -1, true, 'renderRateReport: Variance table shows the per-day uplift % alongside the $ amount');
 
-  t.assertEqual(summaryCard.textContent.indexOf('Summary') > -1, true, 'renderRateReport: a Summary card is rendered after all sections');
+  t.assertEqual(summaryCard.textContent.indexOf('Summary') > -1, true, 'renderRateReport: a Summary card is rendered first, before the per-section tables');
   t.assertEqual(summaryCard.textContent.indexOf('Total') > -1, true, 'renderRateReport: Summary card includes a grand Total row');
   var summaryRows = summaryCard.querySelectorAll('table.summaryTable tbody tr');
   // Day row + Total row + spacer row + ATP header row + ATP Day row + ATP Total row = 6.
