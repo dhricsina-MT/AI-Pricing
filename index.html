@@ -86,14 +86,14 @@ select{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background
   <div class="logo">&#9679; Rate Compare</div>
   <div class="spacer"></div>
   <nav id="tabNav">
-    <button data-tab="setup" class="active">Setup</button>
-    <button data-tab="discover">Discover</button>
+    <button data-tab="discover" class="active">Discover</button>
+    <button data-tab="setup">Setup</button>
     <button data-tab="compare">Compare</button>
   </nav>
   <div class="spacer"></div>
   <div class="toggle" id="nightToggle"><span>Night</span><span class="switch"></span></div>
 </header>
-<div id="setupPage" class="page active">
+<div id="setupPage" class="page">
   <div class="card">
     <div class="cardHeaderRow">
       <div class="sub" style="margin:0">Rate coverage (green = one rate card covers that hour; red = two or more conflict; blank = no rate assigned &mdash; gaps are often intentional, e.g. closed hours)</div>
@@ -132,7 +132,7 @@ select{padding:6px 8px;border-radius:7px;border:1px solid var(--line);background
     </div>
   </div>
 </div>
-<div id="discoverPage" class="page">
+<div id="discoverPage" class="page active">
   <h2>Discover</h2>
   <p class="sub">Drop an old visit export and we'll figure out the rate bands and fill in Setup's rate cards automatically.</p>
   <div class="card">
@@ -679,10 +679,21 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
       var b = Math.floor(v.durationMin / bracketMin) * bracketMin;
       (byBracket[b] = byBracket[b] || []).push(v.price);
     });
-    var brackets = Object.keys(byBracket)
+    var candidates = Object.keys(byBracket)
       .map(Number)
       .filter(function(b){ return byBracket[b].length >= minBracketSupport; })
       .sort(function(a, b){ return a - b; });
+    if (!candidates.length) return [];
+    // A $0 modal price only means anything as a leading free/grace period —
+    // anywhere else in the ladder it's noise (comps, fully-covered
+    // validations that now flow through since Visit Coverage Type isn't
+    // filtered), not a genuine promotional dead zone in the middle of a
+    // stay. Drop any non-leading $0 bracket so its visits get absorbed into
+    // whichever real band ends up spanning that duration once the gap
+    // closes, instead of carving out a bogus interior $0 band.
+    var brackets = candidates.filter(function(b, idx){
+      return idx === 0 || mode(byBracket[b]) !== 0;
+    });
     if (!brackets.length) return [];
     var bands = [];
     var curPrice = mode(byBracket[brackets[0]]);
@@ -1380,6 +1391,19 @@ window.__engineTestCases.push(function(t){
   var smoothed = RateEngine.inferRateBands(smoothingRows, [dayCard], noEb); // default minBracketSupport
   t.assertEqual(smoothed.cardBands.Day.length, 1, 'inferRateBands: a low-support bracket (2 visits) is dropped, leaving one clean band');
   t.assertEqual(smoothed.cardBands.Day[0].rate, 5, 'inferRateBands: the surviving band keeps the well-supported price');
+
+  // A well-supported bracket whose modal price is $0, but which is NOT the
+  // leading bracket, must not carve out a bogus interior $0 band (e.g. a
+  // cluster of comp'd/fully-covered $0 visits sitting between two real
+  // price points). It gets dropped like a low-support bracket would.
+  var midZeroRows = [];
+  for (var i = 0; i < 6; i++) midZeroRows.push(row({ 'Price Amt': '$10.00' })); // 60min, $10
+  for (var i = 0; i < 6; i++) midZeroRows.push(row({ 'Visit Exit  Event At': '11:30:00 AM', 'Price Amt': '$0.00' })); // 90min, $0 (noise)
+  for (var i = 0; i < 6; i++) midZeroRows.push(row({ 'Visit Exit  Event At': '12:00:00 PM', 'Price Amt': '$10.00' })); // 120min, back to $10
+  var midZero = RateEngine.inferRateBands(midZeroRows, [dayCard], noEb);
+  t.assertEqual(midZero.cardBands.Day.length, 1, 'inferRateBands: a non-leading $0 bracket does not fragment the ladder into a $0 band');
+  t.assertEqual(midZero.cardBands.Day[0].rate, 10, 'inferRateBands: the real rate on both sides of the $0 noise bracket is preserved as one band');
+  t.assertEqual(midZero.cardBands.Day[0].startingMin, 0, 'inferRateBands: no free-period folding happens for a non-leading $0 bracket');
 });
 </script>
 
