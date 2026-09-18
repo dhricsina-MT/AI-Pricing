@@ -102,12 +102,32 @@ select:disabled{opacity:.4;cursor:not-allowed}
       <div class="ctl"><label>Reconciliation cutoff (hours)</label><input type="number" id="cutoffHours" value="24"></div>
     </div>
     <div class="row">
+      <div id="historicalDropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--teal);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
+        <div style="font-size:26px;color:var(--teal)">&#8681;</div>
+        <h3 style="margin:6px 0 2px;font-size:13px">Drop historical visit CSV</h3>
+        <div id="historicalDropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
+      </div>
+      <input type="file" id="historicalFileInput" style="display:none" accept=".csv">
+      <div class="ctl" style="justify-content:flex-end">
+        <button id="inferBandsBtn" class="btnPrimary">Infer &amp; Apply Rate Bands</button>
+      </div>
       <div id="dropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--brand);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
         <div style="font-size:26px;color:var(--brand)">&#8681;</div>
         <h3 style="margin:6px 0 2px;font-size:13px">Drop visit CSV</h3>
         <div id="dropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
       </div>
       <input type="file" id="fileInput" style="display:none" accept=".csv">
+    </div>
+    <div id="inferStatus" class="sub" style="margin:6px 0 0"></div>
+  </div>
+  <div class="card">
+    <div class="sub" style="margin:0 0 10px">Time windows (for the historical import above)</div>
+    <div class="row">
+      <label class="toggle" style="cursor:pointer"><input type="checkbox" id="discoverAllDay" checked> All-Day Rates</label>
+    </div>
+    <div class="row" id="discoverQuickSetupCard">
+      <div class="ctl"><label>Day Rate Start Time</label><div id="discoverDayStartGroup"></div></div>
+      <div class="ctl"><label>Evening Rate Start Time</label><div id="discoverEveningStartGroup"></div></div>
     </div>
   </div>
   <div class="card">
@@ -132,32 +152,6 @@ select:disabled{opacity:.4;cursor:not-allowed}
   </div>
   <div id="rateCardList"></div>
   <button id="addCardBtn" class="btnPrimary">+ Add Rate Card</button>
-
-  <div class="card">
-    <div class="sub" style="margin:0 0 10px">Time windows (for the historical import below)</div>
-    <div class="row">
-      <label class="toggle" style="cursor:pointer"><input type="checkbox" id="discoverAllDay" checked> All-Day Rates</label>
-    </div>
-    <div class="row" id="discoverQuickSetupCard">
-      <div class="ctl"><label>Day Rate Start Time</label><div id="discoverDayStartGroup"></div></div>
-      <div class="ctl"><label>Evening Rate Start Time</label><div id="discoverEveningStartGroup"></div></div>
-    </div>
-  </div>
-  <div class="card">
-    <div class="sub" style="margin:0 0 10px">Have old visit exports? Drop them in and we'll figure out the rate bands and fill in the rate cards above.</div>
-    <div class="row">
-      <div id="historicalDropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--teal);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
-        <div style="font-size:26px;color:var(--teal)">&#8681;</div>
-        <h3 style="margin:6px 0 2px;font-size:13px">Drop historical visit CSV</h3>
-        <div id="historicalDropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
-      </div>
-      <input type="file" id="historicalFileInput" style="display:none" accept=".csv">
-      <div class="ctl" style="justify-content:flex-end">
-        <button id="inferBandsBtn" class="btnPrimary">Infer &amp; Apply Rate Bands</button>
-      </div>
-    </div>
-    <div id="inferStatus" class="sub" style="margin:6px 0 0"></div>
-  </div>
 </div>
 <div id="summaryPage" class="page">
   <div style="display:flex;justify-content:space-between;align-items:baseline">
@@ -165,12 +159,13 @@ select:disabled{opacity:.4;cursor:not-allowed}
     <label class="toggle" style="cursor:pointer"><input type="checkbox" id="includeFullValidations" checked> Include Full Validations</label>
   </div>
   <p class="sub">Actual (AI-priced) charges vs. what the static rate table would have charged.</p>
-  <div id="narrative"></div>
   <div id="totalsSummary"></div>
+  <div id="narrative"></div>
+  <div id="rateReport"></div>
 </div>
 <div id="fullDataPage" class="page">
   <h2>Full Data</h2>
-  <div id="rateReport"></div>
+  <div id="validationPoolReport"></div>
   <div id="excludedSummary"></div>
 </div>
 
@@ -2475,28 +2470,29 @@ function renderNarrative(totals, gpvReport, validationReport) {
 // always agree with the tables below them, instead of being computed
 // separately from ALL non-excluded visits regardless of payment method.
 function renderRateReport() {
-  var el = document.getElementById('rateReport');
-  el.innerHTML = '';
+  var gpvEl = document.getElementById('rateReport');
+  var validationEl = document.getElementById('validationPoolReport');
+  gpvEl.innerHTML = '';
+  validationEl.innerHTML = '';
   if (!state.processedVisits) return { totals: { staticTotal: 0, actualTotal: 0, delta: 0, percentOfStatic: null }, gpvReport: null, validationReport: null };
 
   var hasValidationData = state.processedVisits.some(function(v){ return !v.excluded && v.hasValidationAmt; });
   var showValidationPool = hasValidationData && state.includeFullValidations;
 
-  if (showValidationPool) el.insertAdjacentHTML('beforeend', '<h3>GPV Pool</h3>');
   var gpvReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird);
-  appendReportBlock(gpvReport, el);
+  appendReportBlock(gpvReport, gpvEl);
 
   var combinedStatic = gpvReport.summary.total.staticTotal;
   var combinedActual = gpvReport.summary.total.actualTotal;
   var validationReport = null;
 
   if (showValidationPool) {
-    el.insertAdjacentHTML('beforeend', '<h3>Validation Pool</h3>');
+    validationEl.insertAdjacentHTML('beforeend', '<h3>Validation Pool</h3>');
     validationReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird, {
       qualifies: function(v){ return v.hasValidationAmt && v.validationType === 'full'; },
       actualField: 'validationAmt'
     });
-    appendReportBlock(validationReport, el);
+    appendReportBlock(validationReport, validationEl);
     combinedStatic += validationReport.summary.total.staticTotal;
     combinedActual += validationReport.summary.total.actualTotal;
   }
@@ -2516,6 +2512,7 @@ function renderCompare() {
     document.getElementById('totalsSummary').innerHTML = '';
     document.getElementById('narrative').innerHTML = '';
     document.getElementById('rateReport').innerHTML = '';
+    document.getElementById('validationPoolReport').innerHTML = '';
     excludedEl.innerHTML = '';
     return;
   }
@@ -2656,9 +2653,10 @@ window.__engineTestCases.push(function(t){
 
   t.assertEqual(document.getElementById('narrative'), document.querySelector('#summaryPage #narrative'), 'restructure: the narrative lives on the Summary page');
   t.assertEqual(document.getElementById('totalsSummary'), document.querySelector('#summaryPage #totalsSummary'), 'restructure: the summary bubbles live on the Summary page');
-  t.assertEqual(document.querySelector('#summaryPage #rateReport'), null, 'restructure: the detailed per-section tables are NOT on the Summary page');
+  t.assertEqual(document.getElementById('rateReport'), document.querySelector('#summaryPage #rateReport'), 'restructure: the GPV Pool report lives on the Summary page, below the bubbles and narrative');
+  t.assertEqual(document.querySelector('#fullDataPage #rateReport'), null, 'restructure: the GPV Pool report is NOT on the Full Data page');
 
-  t.assertEqual(document.getElementById('rateReport'), document.querySelector('#fullDataPage #rateReport'), 'restructure: the detailed per-section tables live on the Full Data page');
+  t.assertEqual(document.getElementById('validationPoolReport'), document.querySelector('#fullDataPage #validationPoolReport'), 'restructure: the Validation Pool report lives on the Full Data page');
   t.assertEqual(document.getElementById('excludedSummary'), document.querySelector('#fullDataPage #excludedSummary'), 'restructure: the excluded-visits breakdown lives on the Full Data page');
 
   t.assertEqual(document.getElementById('includePartialValidations'), null, 'restructure: Include Partial Validations toggle is removed (partial validations are excluded from processing entirely)');
