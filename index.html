@@ -338,8 +338,17 @@ RateEngine.checkEarlyBird = function(earlyBird, entryDate, exitDate) {
 };
 
 RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
-  var entryDate = RateEngine.parseVisitTimestamp(row['Visit Start Date'], row['Visit Start At']);
-  var exitDate = RateEngine.parseVisitTimestamp(row['Visit Exit  Event Date'], row['Visit Exit  Event At']);
+  // Some real exports have rows where the exit gate/camera event was never
+  // recorded (e.g. Visit Notes: "exit missing") — a blank/unparseable
+  // timestamp anywhere shouldn't crash the whole batch, it should just
+  // exclude that one row, same as any other excluded reason.
+  var entryDate, exitDate;
+  try {
+    entryDate = RateEngine.parseVisitTimestamp(row['Visit Start Date'], row['Visit Start At']);
+    exitDate = RateEngine.parseVisitTimestamp(row['Visit Exit  Event Date'], row['Visit Exit  Event At']);
+  } catch (e) {
+    return { excluded: 'invalid_timestamp', actualPrice: RateEngine.parseMoney(row['Price Amt']) };
+  }
   var durationMin = RateEngine.computeDurationMinutes(entryDate, exitDate);
   var actualPrice = RateEngine.parseMoney(row['Price Amt']);
   var isSpecialEvent = String(row['Is Special Event Rate']).toLowerCase() === 'true';
@@ -411,7 +420,8 @@ RateEngine.aggregateByBracket = function(processedVisits) {
   var excluded = {
     special_event: { count: 0, actualTotal: 0 },
     over_cutoff: { count: 0, actualTotal: 0 },
-    no_matching_rate_card: { count: 0, actualTotal: 0 }
+    no_matching_rate_card: { count: 0, actualTotal: 0 },
+    invalid_timestamp: { count: 0, actualTotal: 0 }
   };
 
   processedVisits.forEach(function(v){
@@ -1053,6 +1063,13 @@ window.__engineTestCases.push(function(t){
   var v4 = RateEngine.processVisit(row({'Visit Start At': '02:00:00 AM', 'Visit Exit  Event At': '02:30:00 AM'}), rateCards, noEb, 24);
   t.assertEqual(v4.excluded, 'no_matching_rate_card', 'processVisit: no matching card excluded');
 
+  // A blank exit event (e.g. the gate/camera event was never recorded — real
+  // exports carry a "exit missing" Visit Notes on rows like this) must not
+  // throw and crash the whole batch; it's just another excluded reason.
+  var v4b = RateEngine.processVisit(row({'Visit Exit  Event Date': '', 'Visit Exit  Event At': ''}), rateCards, noEb, 24);
+  t.assertEqual(v4b.excluded, 'invalid_timestamp', 'processVisit: a blank/unparseable timestamp is excluded, not thrown');
+  t.assertEqual(v4b.actualPrice, 13.78, 'processVisit: the excluded invalid_timestamp row still carries its actual price for reporting');
+
   var v5 = RateEngine.processVisit(row({'Visit Coverage Type': 'Validation (Partially Covered)', 'Validation Amt': '$5.00', 'GPV Amt': '$8.78'}), rateCards, noEb, 24);
   t.assertEqual(v5.isValidated, true, 'processVisit: Partially Covered counts as validated');
   t.assertEqual(v5.validationAmt, 5, 'processVisit: validation amount parsed');
@@ -1094,7 +1111,8 @@ window.__engineTestCases.push(function(t){
     { excluded: null, bracketName: 'Night', entryDate: new Date(2026, 6, 1), staticPrice: 5, actualPrice: 6, validationAmt: 0, isValidated: false },
     { excluded: 'special_event', actualPrice: 20 },
     { excluded: 'over_cutoff', actualPrice: 50 },
-    { excluded: 'no_matching_rate_card', actualPrice: 7 }
+    { excluded: 'no_matching_rate_card', actualPrice: 7 },
+    { excluded: 'invalid_timestamp', actualPrice: 9 }
   ];
   var result = RateEngine.aggregateByBracket(visits);
 
@@ -1117,6 +1135,8 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(result.excluded.special_event.actualTotal, 20, 'aggregateByBracket: special_event excluded actual total');
   t.assertEqual(result.excluded.over_cutoff.count, 1, 'aggregateByBracket: over_cutoff excluded count');
   t.assertEqual(result.excluded.no_matching_rate_card.count, 1, 'aggregateByBracket: no_matching_rate_card excluded count');
+  t.assertEqual(result.excluded.invalid_timestamp.count, 1, 'aggregateByBracket: invalid_timestamp excluded count');
+  t.assertEqual(result.excluded.invalid_timestamp.actualTotal, 9, 'aggregateByBracket: invalid_timestamp excluded actual total');
 
   // Regression: a rate card named "__proto__" must not pollute Object.prototype or crash.
   var trapVisits = [
@@ -2378,7 +2398,8 @@ function renderCompare() {
     '<div class="card">' +
     'Excluded — Special Event: ' + fmtNumber(result.excluded.special_event.count) + ' visits, ' + fmtMoney(result.excluded.special_event.actualTotal) + '<br>' +
     'Excluded — Over cutoff: ' + fmtNumber(result.excluded.over_cutoff.count) + ' visits, ' + fmtMoney(result.excluded.over_cutoff.actualTotal) + '<br>' +
-    'Excluded — No matching rate card: ' + fmtNumber(result.excluded.no_matching_rate_card.count) + ' visits, ' + fmtMoney(result.excluded.no_matching_rate_card.actualTotal) +
+    'Excluded — No matching rate card: ' + fmtNumber(result.excluded.no_matching_rate_card.count) + ' visits, ' + fmtMoney(result.excluded.no_matching_rate_card.actualTotal) + '<br>' +
+    'Excluded — Invalid/missing timestamp: ' + fmtNumber(result.excluded.invalid_timestamp.count) + ' visits, ' + fmtMoney(result.excluded.invalid_timestamp.actualTotal) +
     '</div>';
 }
 
@@ -2415,7 +2436,10 @@ window.__engineTestCases.push(function(t){
   var row1 = "1\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$12.00\t\t$12.00\tTransient (No Coverage)";
   var row2 = "2\t7/2/2026\t10:00:00 AM\t7/2/2026\t11:30:00 AM\tFalse\t$12.00\t\t$12.00\tTransient (No Coverage)";
   var row3 = "3\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$12.00\t\t$0.00\tTransient (No Coverage)"; // gpv=0, must not count
-  applyVisitFileBuffer(t.utf16leEncode(header + row1 + "\n" + row2 + "\n" + row3), 'test.csv');
+  var row4 = "4\t7/3/2026\t10:00:00 AM\t\t\tFalse\t$50.00\t\t$50.00\tTransient (No Coverage)"; // blank exit event (e.g. gate/camera never fired) — must not throw
+  applyVisitFileBuffer(t.utf16leEncode(header + row1 + "\n" + row2 + "\n" + row3 + "\n" + row4), 'test.csv');
+
+  t.assertEqual(document.getElementById('excludedSummary').textContent.indexOf('Invalid/missing timestamp: 1 visits, $50.00') > -1, true, 'renderCompare: a row with a blank exit timestamp is reported as excluded, not silently dropped or crashed on');
 
   var bracket = state.compareResult.brackets[0];
   t.assertEqual(bracket.dayList.length, 2, 'runComparison: bracket has two day-of-week entries, sorted Wed then Thu');
