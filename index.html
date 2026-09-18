@@ -714,7 +714,11 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
         curPrice = price;
       }
     }
-    bands.push({ rate: curPrice, upToMin: brackets[brackets.length - 1] + bracketMin });
+    // The final band always ends at the 24-hour ceiling, not one bracket
+    // past whatever the longest observed stay happened to be — the exact
+    // number here is cosmetic anyway (selectBand's catch-all rule means the
+    // last band always covers everything beyond its lower bound).
+    bands.push({ rate: curPrice, upToMin: 1440 });
 
     // A leading $0 band is really a free/grace period, not a billable band —
     // fold it into Band 1's `startingMin` the same way the Setup tab models
@@ -769,6 +773,11 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
 
     var ebPrice = RateEngine.checkEarlyBird(earlyBird, entryDate, exitDate);
     if (ebPrice !== null) { ebPrices.push(price); return; }
+
+    // Rate bands top out at 24 hours — anything longer doesn't contribute to
+    // the inferred ladder at all (Early Bird, above, is unaffected: it's a
+    // flat price, not a duration band).
+    if (durationMin > 1440) return;
 
     var card = RateEngine.findMatchingRateCard(rateCards, entryDate);
     if (card) {
@@ -1368,6 +1377,16 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(result.cardBands.Day[1].rate, 10, 'inferRateBands: second bracket\'s modal price');
   t.assertEqual(result.perCardCounts.Day, 5, 'inferRateBands: counts every qualifying visit matched to the card');
 
+  // Rate bands top out at 24 hours: a visit longer than 1440 min is excluded
+  // from inference entirely, and the final band's upToMin is always exactly
+  // 1440 (never one bracket past the longest observed stay).
+  var overCutoffRows = rows.concat([
+    row({ 'Visit Exit  Event Date': '7/7/2026', 'Visit Exit  Event At': '11:00:00 AM', 'Price Amt': '$999.00' }) // 1500 min, past 24hr
+  ]);
+  var overCutoffResult = RateEngine.inferRateBands(overCutoffRows, [dayCard], noEb, null, loose);
+  t.assertEqual(overCutoffResult.perCardCounts.Day, 5, 'inferRateBands: a visit past 24 hours is excluded, not counted toward the card');
+  t.assertEqual(overCutoffResult.cardBands.Day[1].upToMin, 1440, 'inferRateBands: the final band\'s upToMin is the 24-hour ceiling, unaffected by the excluded $999 visit');
+
   // A leading $0 bracket collapses into Band 1's startingMin instead of its own band.
   var freeRows = [
     row({ 'Visit Exit  Event At': '10:10:00 AM', 'Price Amt': '$0.00' }), // 10 min -> bracket 0, free
@@ -1458,24 +1477,27 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(wed.name, 'Wed', 'inferRateBands: a day that doesn\'t match any group\'s ladder gets its own single-day card');
   t.assertEqual(wed.bands[0].rate, 20, 'inferRateBands: Wednesday keeps its own distinct rate');
 
-  // Two days whose ladders agree on every REAL price break, but whose final
-  // (catch-all) band ends up with a different raw number just because one
-  // day happened to record a longer stay, still merge — and the merged
-  // ladder is recomputed from BOTH days' combined visits, not just one day's.
+  // Rate bands top out at 24 hours: a visit longer than 1440 min is excluded
+  // from inference entirely (its price never influences any band), and the
+  // final band always ends at exactly 1440, not one bracket past whatever
+  // the longest observed (eligible) stay happened to be. This also means
+  // Monday and Tuesday still merge even though Monday alone has some
+  // (excluded) visits Tuesday doesn't.
   var tailRows = [];
   for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Price Amt': '$10.00' }, '7/6/2026')); // Mon, 60min $10
   for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Visit Exit  Event At': '6:00:00 PM', 'Price Amt': '$20.00' }, '7/6/2026')); // Mon, 480min $20
-  for (var i = 0; i < 6; i++) tailRows.push(row({ 'Visit Start Date': '7/6/2026', 'Visit Exit  Event Date': '7/7/2026', 'Visit Exit  Event At': '11:00:00 AM', 'Price Amt': '$20.00' })); // Mon 10am -> Tue 11am = 1500min $20 (long tail)
+  for (var i = 0; i < 6; i++) tailRows.push(row({ 'Visit Start Date': '7/6/2026', 'Visit Exit  Event Date': '7/7/2026', 'Visit Exit  Event At': '11:00:00 AM', 'Price Amt': '$999.00' })); // Mon 10am -> Tue 11am = 1500min, past 24hr -> excluded
   for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Price Amt': '$10.00' }, '7/7/2026')); // Tue, 60min $10
-  for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Visit Exit  Event At': '6:00:00 PM', 'Price Amt': '$20.00' }, '7/7/2026')); // Tue, 480min $20 (no long-tail visits at all)
+  for (var i = 0; i < 6; i++) tailRows.push(withDate({ 'Visit Exit  Event At': '6:00:00 PM', 'Price Amt': '$20.00' }, '7/7/2026')); // Tue, 480min $20
 
   var tailResult = RateEngine.inferRateBands(tailRows, [], noEb);
-  t.assertEqual(tailResult.newCards.length, 1, 'inferRateBands: Mon and Tue merge despite Monday alone having a longer recorded max stay');
+  t.assertEqual(tailResult.newCards.length, 1, 'inferRateBands: Mon and Tue merge once the past-24hr visits are excluded from both');
   var merged = tailResult.newCards[0];
   t.assertEqual(merged.days[1] && merged.days[2], true, 'inferRateBands: merged card covers both Monday and Tuesday');
-  t.assertEqual(merged.bands.length, 2, 'inferRateBands: merged ladder has the two real bands (60min $10, 480min+ $20)');
+  t.assertEqual(merged.bands.length, 2, 'inferRateBands: merged ladder has only the two real bands (60min $10, 480min+ $20) — the $999 past-24hr visits contributed nothing');
   t.assertEqual(merged.bands[0].upToMin, 480, 'inferRateBands: the real (non-final) band boundary is unchanged by the merge');
-  t.assertEqual(merged.bands[1].rate, 20, 'inferRateBands: the final band keeps the shared rate');
+  t.assertEqual(merged.bands[1].rate, 20, 'inferRateBands: the final band keeps the shared rate, unaffected by the excluded $999 visits');
+  t.assertEqual(merged.bands[1].upToMin, 1440, 'inferRateBands: the final band always ends at 1440 (24 hours), not one bracket past the longest observed stay');
 
   // Day/Evening windows (All-Day unchecked) classify by time of day, and the
   // resulting card names get a window prefix once there's more than one window.
@@ -2574,7 +2596,7 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(state.rateCards.length, 1, 'inferBandsBtn: no new cards created when every visit matches the existing Day card');
   t.assertEqual(state.rateCards[0].bands.length, 1, 'inferBandsBtn: applies the inferred band to the matching rate card');
   t.assertEqual(state.rateCards[0].bands[0].rate, 5, 'inferBandsBtn: inferred rate matches the modal historical price');
-  t.assertEqual(state.rateCards[0].bands[0].upToMin, 90, 'inferBandsBtn: inferred band upper bound comes from the bracket past the observed duration');
+  t.assertEqual(state.rateCards[0].bands[0].upToMin, 1440, 'inferBandsBtn: the inferred band\'s upper bound is the 24-hour ceiling, not one bracket past the observed duration');
   var rateInput = document.querySelectorAll('#rateCardList .card')[0].querySelector('input[data-band-field="rate"]');
   t.assertEqual(rateInput.value, '5', 'inferBandsBtn: the re-rendered Setup UI shows the inferred rate');
   t.assertEqual(document.getElementById('inferStatus').textContent.indexOf('filled bands for 1 existing rate card') > -1, true, 'inferBandsBtn: status line reports how many existing cards were filled');
