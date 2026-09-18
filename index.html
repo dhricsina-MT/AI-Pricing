@@ -87,14 +87,29 @@ select:disabled{opacity:.4;cursor:not-allowed}
   <div class="logo">&#9679; Rate Compare</div>
   <div class="spacer"></div>
   <nav id="tabNav">
-    <button data-tab="discover" class="active">Discover</button>
-    <button data-tab="setup">Setup</button>
-    <button data-tab="compare">Compare</button>
+    <button data-tab="setup" class="active">Setup</button>
+    <button data-tab="summary">Summary</button>
+    <button data-tab="fullData">Full Data</button>
   </nav>
   <div class="spacer"></div>
   <div class="toggle" id="nightToggle"><span>Night</span><span class="switch"></span></div>
 </header>
-<div id="setupPage" class="page">
+<div id="setupPage" class="page active">
+  <h2>Setup</h2>
+  <p class="sub">Build your static rate table, then drop in a visit export below.</p>
+  <div class="card">
+    <div class="row">
+      <div class="ctl"><label>Reconciliation cutoff (hours)</label><input type="number" id="cutoffHours" value="24"></div>
+    </div>
+    <div class="row">
+      <div id="dropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--brand);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
+        <div style="font-size:26px;color:var(--brand)">&#8681;</div>
+        <h3 style="margin:6px 0 2px;font-size:13px">Drop visit CSV</h3>
+        <div id="dropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
+      </div>
+      <input type="file" id="fileInput" style="display:none" accept=".csv">
+    </div>
+  </div>
   <div class="card">
     <div class="cardHeaderRow">
       <div class="sub" style="margin:0">Rate coverage (green = one rate card covers that hour; red = two or more conflict; blank = no rate assigned &mdash; gaps are often intentional, e.g. closed hours)</div>
@@ -115,29 +130,11 @@ select:disabled{opacity:.4;cursor:not-allowed}
     </div>
     <div class="row" id="ebDayRow"><div class="dayBoxes" id="ebDayBoxes"></div></div>
   </div>
-  <h2>Setup</h2>
-  <p class="sub">Build your static rate table, then drop in a visit export below.</p>
   <div id="rateCardList"></div>
   <button id="addCardBtn" class="btnPrimary">+ Add Rate Card</button>
+
   <div class="card">
-    <div class="row">
-      <div class="ctl"><label>Reconciliation cutoff (hours)</label><input type="number" id="cutoffHours" value="24"></div>
-    </div>
-    <div class="row">
-      <div id="dropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--brand);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
-        <div style="font-size:26px;color:var(--brand)">&#8681;</div>
-        <h3 style="margin:6px 0 2px;font-size:13px">Drop visit CSV</h3>
-        <div id="dropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
-      </div>
-      <input type="file" id="fileInput" style="display:none" accept=".csv">
-    </div>
-  </div>
-</div>
-<div id="discoverPage" class="page active">
-  <h2>Discover</h2>
-  <p class="sub">Drop an old visit export and we'll figure out the rate bands and fill in Setup's rate cards automatically.</p>
-  <div class="card">
-    <div class="sub" style="margin:0 0 10px">Time windows</div>
+    <div class="sub" style="margin:0 0 10px">Time windows (for the historical import below)</div>
     <div class="row">
       <label class="toggle" style="cursor:pointer"><input type="checkbox" id="discoverAllDay" checked> All-Day Rates</label>
     </div>
@@ -146,20 +143,8 @@ select:disabled{opacity:.4;cursor:not-allowed}
       <div class="ctl"><label>Evening Rate Start Time</label><div id="discoverEveningStartGroup"></div></div>
     </div>
   </div>
-  <div class="row"><label class="toggle" style="cursor:pointer"><input type="checkbox" id="discoverEbEnabled"> Early Bird (same setting as Setup &mdash; editing either one updates both)</label></div>
-  <div class="card" id="discoverEbCard" style="display:none">
-    <div class="row">
-      <div class="ctl"><label>Entry window start</label><div id="discoverEbEntryStartGroup"></div></div>
-      <div class="ctl"><label>Entry window end</label><div id="discoverEbEntryEndGroup"></div></div>
-      <div class="ctl"><label>Exit condition</label>
-        <select id="discoverEbExitCondition"><option value="before">Exit Before</option><option value="after">Exit After</option></select>
-      </div>
-      <div class="ctl"><label>Exit time</label><div id="discoverEbExitTimeGroup"></div></div>
-      <div class="ctl"><label>Price</label><input type="number" id="discoverEbPrice"></div>
-    </div>
-    <div class="row" id="discoverEbDayRow"><div class="dayBoxes" id="discoverEbDayBoxes"></div></div>
-  </div>
   <div class="card">
+    <div class="sub" style="margin:0 0 10px">Have old visit exports? Drop them in and we'll figure out the rate bands and fill in the rate cards above.</div>
     <div class="row">
       <div id="historicalDropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--teal);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
         <div style="font-size:26px;color:var(--teal)">&#8681;</div>
@@ -174,16 +159,17 @@ select:disabled{opacity:.4;cursor:not-allowed}
     <div id="inferStatus" class="sub" style="margin:6px 0 0"></div>
   </div>
 </div>
-<div id="comparePage" class="page">
+<div id="summaryPage" class="page">
   <div style="display:flex;justify-content:space-between;align-items:baseline">
-    <h2>Compare</h2>
-    <div style="display:flex;gap:16px">
-      <label class="toggle" style="cursor:pointer"><input type="checkbox" id="includeFullValidations" checked> Include Full Validations</label>
-      <label class="toggle" style="cursor:pointer"><input type="checkbox" id="includePartialValidations" checked> Include Partial Validations</label>
-    </div>
+    <h2>Summary</h2>
+    <label class="toggle" style="cursor:pointer"><input type="checkbox" id="includeFullValidations" checked> Include Full Validations</label>
   </div>
   <p class="sub">Actual (AI-priced) charges vs. what the static rate table would have charged.</p>
+  <div id="narrative"></div>
   <div id="totalsSummary"></div>
+</div>
+<div id="fullDataPage" class="page">
+  <h2>Full Data</h2>
   <div id="rateReport"></div>
   <div id="excludedSummary"></div>
 </div>
@@ -1629,8 +1615,7 @@ var state = {
   discoverSetup: { allDay: true, dayStartMin: 360, eveningStartMin: 1080 },
   processedVisits: null,
   compareResult: null,
-  includeFullValidations: true,
-  includePartialValidations: true
+  includeFullValidations: true
 };
 var nextCardId = 1;
 var DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun display order, values index into card.days (0=Sun..6=Sat, matches Date.getDay())
@@ -2078,11 +2063,10 @@ window.__engineTestCases.push(function(t){
 </script>
 
 <script>
-// Early Bird has exactly one underlying setting (state.earlyBird), but two
-// places to view/edit it — Setup's original controls (prefix "eb") and
-// Discover's mirrored copy (prefix "discoverEb"). Every render/wire pass
-// touches both prefixes so editing either one keeps both in sync.
-var EB_PREFIXES = ['eb', 'discoverEb'];
+// EB_PREFIXES stays an array (rather than hardcoding "eb" everywhere) since
+// there used to be a second mirrored copy on the old Discover tab; kept
+// generalized in case a second view is ever needed again.
+var EB_PREFIXES = ['eb'];
 function renderEarlyBird() {
   EB_PREFIXES.forEach(function(prefix){
     document.getElementById(prefix + 'Enabled').checked = state.earlyBird.enabled;
@@ -2199,21 +2183,6 @@ window.__engineTestCases.push(function(t){
 
   document.getElementById('ebEnabled').checked = true;
   document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
-
-  // Discover's mirrored Early Bird copy reflects the same state — it's the
-  // same setting, just editable from either tab.
-  t.assertEqual(document.getElementById('discoverEbEnabled').checked, true, 'EB UI: Discover\'s Early Bird toggle mirrors Setup\'s');
-  t.assertEqual(document.getElementById('discoverEbCard').style.display, 'block', 'EB UI: Discover\'s Early Bird card visibility mirrors Setup\'s');
-  t.assertEqual(document.getElementById('discoverEbPrice').value, '5', 'EB UI: Discover\'s Early Bird price mirrors Setup\'s');
-  var discoverEsHour = document.getElementById('discoverEbEntryStartGroup').querySelector('select[data-timepart="hour"]');
-  t.assertEqual(discoverEsHour.value, '6', 'EB UI: Discover\'s Early Bird entry start time mirrors Setup\'s');
-
-  // Editing from the Discover copy updates Setup's copy right back.
-  var discoverPriceInput = document.getElementById('discoverEbPrice');
-  discoverPriceInput.value = '9';
-  discoverPriceInput.dispatchEvent(new Event('input', {bubbles:true}));
-  t.assertEqual(state.earlyBird.price, 9, 'EB UI: editing Discover\'s price updates the shared state');
-  t.assertEqual(document.getElementById('ebPrice').value, '9', 'EB UI: editing Discover\'s price mirrors back to Setup\'s copy');
 });
 </script>
 
@@ -2476,6 +2445,31 @@ function renderTotalsSummary(totals) {
     '</div>';
 }
 
+// Writes a plain-language paragraph + bullet breakdown above the summary
+// bubbles, so the headline numbers come with an explanation instead of
+// requiring the reader to interpret raw tables first.
+function renderNarrative(totals, gpvReport, validationReport) {
+  var el = document.getElementById('narrative');
+  if (!gpvReport || !gpvReport.summary.rows.length) { el.innerHTML = ''; return; }
+
+  var direction = totals.delta >= 0 ? 'more' : 'less';
+  var pctText = totals.percentOfStatic === null ? 'an undefined change since the traditional total was $0' : fmtPercent(totals.percentOfStatic);
+  var html = '<div class="card"><p>Across the qualifying visits, AI pricing generated ' + fmtMoney(totals.actualTotal) +
+    ', compared to ' + fmtMoney(totals.staticTotal) + ' the traditional static rate table would have charged — ' +
+    fmtMoney(Math.abs(totals.delta)) + ' ' + direction + ' (' + pctText + ').</p><ul>';
+
+  gpvReport.summary.rows.forEach(function(r){
+    html += '<li>' + escapeHtml(r.name) + ': ' + fmtMoney(r.staticTotal) + ' traditional vs ' + fmtMoney(r.actualTotal) + ' AI (' +
+      (r.upliftPct === null ? 'no traditional baseline to compare' : fmtPercent(r.upliftPct) + ' uplift') + ')</li>';
+  });
+  if (validationReport && validationReport.summary.total.count) {
+    html += '<li>Validation Pool (visits covered by a validation rather than paid directly): ' +
+      fmtMoney(validationReport.summary.total.staticTotal) + ' traditional vs ' + fmtMoney(validationReport.summary.total.actualTotal) + ' AI</li>';
+  }
+  html += '</ul></div>';
+  el.innerHTML = html;
+}
+
 // Returns the combined grand total across every pool actually rendered
 // (GPV Pool, plus Validation Pool when shown) so the top summary bubbles
 // always agree with the tables below them, instead of being computed
@@ -2483,10 +2477,10 @@ function renderTotalsSummary(totals) {
 function renderRateReport() {
   var el = document.getElementById('rateReport');
   el.innerHTML = '';
-  if (!state.processedVisits) return { staticTotal: 0, actualTotal: 0, delta: 0, percentOfStatic: null };
+  if (!state.processedVisits) return { totals: { staticTotal: 0, actualTotal: 0, delta: 0, percentOfStatic: null }, gpvReport: null, validationReport: null };
 
   var hasValidationData = state.processedVisits.some(function(v){ return !v.excluded && v.hasValidationAmt; });
-  var showValidationPool = hasValidationData && (state.includeFullValidations || state.includePartialValidations);
+  var showValidationPool = hasValidationData && state.includeFullValidations;
 
   if (showValidationPool) el.insertAdjacentHTML('beforeend', '<h3>GPV Pool</h3>');
   var gpvReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird);
@@ -2494,16 +2488,12 @@ function renderRateReport() {
 
   var combinedStatic = gpvReport.summary.total.staticTotal;
   var combinedActual = gpvReport.summary.total.actualTotal;
+  var validationReport = null;
 
   if (showValidationPool) {
     el.insertAdjacentHTML('beforeend', '<h3>Validation Pool</h3>');
-    var validationReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird, {
-      qualifies: function(v){
-        if (!v.hasValidationAmt) return false;
-        if (v.validationType === 'full') return state.includeFullValidations;
-        if (v.validationType === 'partial') return state.includePartialValidations;
-        return false;
-      },
+    validationReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird, {
+      qualifies: function(v){ return v.hasValidationAmt && v.validationType === 'full'; },
       actualField: 'validationAmt'
     });
     appendReportBlock(validationReport, el);
@@ -2512,15 +2502,27 @@ function renderRateReport() {
   }
 
   var pct = RateEngine.computeDeltaPercents(combinedStatic, combinedActual);
-  return { staticTotal: combinedStatic, actualTotal: combinedActual, delta: pct.delta, percentOfStatic: pct.percentOfStatic };
+  return {
+    totals: { staticTotal: combinedStatic, actualTotal: combinedActual, delta: pct.delta, percentOfStatic: pct.percentOfStatic },
+    gpvReport: gpvReport,
+    validationReport: validationReport
+  };
 }
 
 function renderCompare() {
   var result = state.compareResult;
   var excludedEl = document.getElementById('excludedSummary');
-  if (!result) { document.getElementById('totalsSummary').innerHTML = ''; document.getElementById('rateReport').innerHTML = ''; excludedEl.innerHTML = ''; return; }
+  if (!result) {
+    document.getElementById('totalsSummary').innerHTML = '';
+    document.getElementById('narrative').innerHTML = '';
+    document.getElementById('rateReport').innerHTML = '';
+    excludedEl.innerHTML = '';
+    return;
+  }
 
-  renderTotalsSummary(renderRateReport());
+  var report = renderRateReport();
+  renderTotalsSummary(report.totals);
+  renderNarrative(report.totals, report.gpvReport, report.validationReport);
 
   excludedEl.innerHTML =
     '<div class="card">' +
@@ -2534,11 +2536,9 @@ function renderCompare() {
 
 document.getElementById('includeFullValidations').addEventListener('change', function(e){
   state.includeFullValidations = e.target.checked;
-  renderTotalsSummary(renderRateReport());
-});
-document.getElementById('includePartialValidations').addEventListener('change', function(e){
-  state.includePartialValidations = e.target.checked;
-  renderTotalsSummary(renderRateReport());
+  var report = renderRateReport();
+  renderTotalsSummary(report.totals);
+  renderNarrative(report.totals, report.gpvReport, report.validationReport);
 });
 </script>
 
@@ -2630,6 +2630,43 @@ window.__engineTestCases.push(function(t){
 
   t.assertEqual(document.getElementById('ignoreValidationsToggle'), null, 'renderCompare: Ignore Validations toggle is removed (validation split deferred)');
   t.assertEqual(document.getElementById('bracketList'), null, 'renderCompare: old bracketList container is gone, replaced by rateReport');
+
+  // Narrative: a plain-language paragraph + per-section bullets above the bubbles.
+  var narrative = document.getElementById('narrative');
+  t.assertEqual(narrative.textContent.indexOf('$24.00') > -1, true, 'renderNarrative: paragraph mentions the AI total');
+  t.assertEqual(narrative.textContent.indexOf('$20.00') > -1, true, 'renderNarrative: paragraph mentions the traditional total');
+  t.assertEqual(narrative.querySelectorAll('li').length, 1, 'renderNarrative: one bullet per GPV Pool section (no Validation Pool bullet since there is no validation data)');
+  t.assertEqual(narrative.textContent.indexOf('Day') > -1, true, 'renderNarrative: bullet names the section');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  // Page/tab restructuring: Setup, Summary, Full Data — no more Discover tab,
+  // no more duplicate Early Bird, no more Include Partial Validations toggle.
+  var navButtons = document.querySelectorAll('#tabNav button');
+  t.assertEqual(navButtons.length, 3, 'nav: exactly 3 tabs (Setup, Summary, Full Data)');
+  t.assertEqual(Array.prototype.map.call(navButtons, function(b){ return b.dataset.tab; }), ['setup', 'summary', 'fullData'], 'nav: tab order is Setup, Summary, Full Data');
+  t.assertEqual(navButtons[0].classList.contains('active'), true, 'nav: Setup is the default active tab');
+  t.assertEqual(document.getElementById('discoverPage'), null, 'restructure: the old standalone Discover page is gone');
+
+  t.assertEqual(document.getElementById('discoverAllDay'), document.querySelector('#setupPage #discoverAllDay'), 'restructure: the historical-import Quick Setup now lives on the Setup page');
+  t.assertEqual(document.getElementById('historicalDropZone'), document.querySelector('#setupPage #historicalDropZone'), 'restructure: the historical drop zone now lives on the Setup page');
+  t.assertEqual(document.getElementById('dropZone'), document.querySelector('#setupPage #dropZone'), 'restructure: the main visits drop zone stays on the Setup page');
+
+  t.assertEqual(document.getElementById('narrative'), document.querySelector('#summaryPage #narrative'), 'restructure: the narrative lives on the Summary page');
+  t.assertEqual(document.getElementById('totalsSummary'), document.querySelector('#summaryPage #totalsSummary'), 'restructure: the summary bubbles live on the Summary page');
+  t.assertEqual(document.querySelector('#summaryPage #rateReport'), null, 'restructure: the detailed per-section tables are NOT on the Summary page');
+
+  t.assertEqual(document.getElementById('rateReport'), document.querySelector('#fullDataPage #rateReport'), 'restructure: the detailed per-section tables live on the Full Data page');
+  t.assertEqual(document.getElementById('excludedSummary'), document.querySelector('#fullDataPage #excludedSummary'), 'restructure: the excluded-visits breakdown lives on the Full Data page');
+
+  t.assertEqual(document.getElementById('includePartialValidations'), null, 'restructure: Include Partial Validations toggle is removed (partial validations are excluded from processing entirely)');
+  t.assertEqual(document.getElementById('includeFullValidations') !== null, true, 'restructure: Include Full Validations toggle remains, on the Summary page');
+  t.assertEqual(document.querySelector('#summaryPage #includeFullValidations'), document.getElementById('includeFullValidations'), 'restructure: Include Full Validations lives on the Summary page');
+
+  t.assertEqual(document.getElementById('discoverEbEnabled'), null, 'restructure: there is only one Early Bird entry area now (the Discover mirror is gone)');
+  t.assertEqual(document.getElementById('ebEnabled') !== null, true, 'restructure: Setup\'s single Early Bird toggle remains');
 });
 </script>
 
