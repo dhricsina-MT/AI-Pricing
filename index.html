@@ -357,6 +357,17 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
   if (isSpecialEvent) return { excluded: 'special_event', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
   if (durationMin > cutoffHours * 60) return { excluded: 'over_cutoff', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
 
+  // Only genuine pay-as-you-go transient visits and fully-paid-then-covered
+  // validations ever priced against the static rate table in the first
+  // place. Subscriptions, reservations, partial validations, grace-period/
+  // free visits, etc. are excluded rather than skewing the comparison with
+  // amounts (e.g. a monthly permit holder's nominal list price) that were
+  // never really transient rate-table transactions.
+  var coverageType = row['Visit Coverage Type'] || '';
+  if (coverageType !== 'Transient (No Coverage)' && coverageType !== 'Validation (Fully Covered)') {
+    return { excluded: 'unsupported_coverage_type', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
+  }
+
   // Early Bird takes precedence over the matching rate card's duration ladder
   // whenever it qualifies — a visit never gets both, EB fully overrides.
   var ebPrice = RateEngine.checkEarlyBird(earlyBird, entryDate, exitDate);
@@ -374,14 +385,13 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
     bandUpToMin = band.upToMin;
   }
 
-  var coverageType = row['Visit Coverage Type'] || '';
   // "Not blank" on the RAW cell text, not "parses to a number > 0" — a
   // literal $0.00 (e.g. a Fully Covered visit's GPV) is a real recorded
   // transaction and must still count; only a genuinely blank/missing cell
   // should be excluded.
   var hasGpv = row['GPV Amt'] !== undefined && String(row['GPV Amt']).trim() !== '';
   var hasValidationAmt = row['Validation Amt'] !== undefined && String(row['Validation Amt']).trim() !== '';
-  var validationType = coverageType.indexOf('Fully') > -1 ? 'full' : (coverageType.indexOf('Partial') > -1 ? 'partial' : null);
+  var isValidated = coverageType === 'Validation (Fully Covered)';
   return {
     excluded: null,
     bracketName: bracketName,
@@ -395,11 +405,9 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
     hasGpv: hasGpv,
     hasValidationAmt: hasValidationAmt,
     coverageType: coverageType,
-    validationType: validationType,
-    // Allowlist rather than negating the one known non-validated value, so an
-    // unrecognized/blank coverage type fails safe (uncounted) instead of
-    // silently inflating validated totals.
-    isValidated: coverageType.indexOf('Validation') === 0
+    // 'partial' never occurs any more — partial validations are excluded above.
+    validationType: isValidated ? 'full' : null,
+    isValidated: isValidated
   };
 };
 
@@ -422,7 +430,8 @@ RateEngine.aggregateByBracket = function(processedVisits) {
     special_event: { count: 0, actualTotal: 0 },
     over_cutoff: { count: 0, actualTotal: 0 },
     no_matching_rate_card: { count: 0, actualTotal: 0 },
-    invalid_timestamp: { count: 0, actualTotal: 0 }
+    invalid_timestamp: { count: 0, actualTotal: 0 },
+    unsupported_coverage_type: { count: 0, actualTotal: 0 }
   };
 
   processedVisits.forEach(function(v){
@@ -1111,22 +1120,26 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(v4b.excluded, 'invalid_timestamp', 'processVisit: a blank/unparseable timestamp is excluded, not thrown');
   t.assertEqual(v4b.actualPrice, 13.78, 'processVisit: the excluded invalid_timestamp row still carries its actual price for reporting');
 
+  // Partial validations, subscriptions, reservations, and every other
+  // coverage type besides plain Transient and fully-covered validations
+  // never priced against the static rate table in the first place — they're
+  // excluded outright rather than skewing the comparison.
   var v5 = RateEngine.processVisit(row({'Visit Coverage Type': 'Validation (Partially Covered)', 'Validation Amt': '$5.00', 'GPV Amt': '$8.78'}), rateCards, noEb, 24);
-  t.assertEqual(v5.isValidated, true, 'processVisit: Partially Covered counts as validated');
-  t.assertEqual(v5.validationAmt, 5, 'processVisit: validation amount parsed');
-  t.assertEqual(v5.gpv, 8.78, 'processVisit: GPV parsed');
-  t.assertEqual(v5.validationType, 'partial', 'processVisit: "Partially Covered" maps to validationType partial');
-  t.assertEqual(v5.hasGpv, true, 'processVisit: a partial validation has a real (non-blank) GPV Amt');
-  t.assertEqual(v5.hasValidationAmt, true, 'processVisit: a partial validation has a real (non-blank) Validation Amt — this is why it counts in BOTH the GPV and Validation reports');
+  t.assertEqual(v5.excluded, 'unsupported_coverage_type', 'processVisit: Partially Covered validations are excluded, not counted');
 
   var v5b = RateEngine.processVisit(row({'Visit Coverage Type': 'Validation (Fully Covered)', 'Validation Amt': '$13.78', 'GPV Amt': '$0.00'}), rateCards, noEb, 24);
-  t.assertEqual(v5b.validationType, 'full', 'processVisit: "Fully Covered" maps to validationType full');
+  t.assertEqual(v5b.excluded, null, 'processVisit: Fully Covered validations are still processed');
+  t.assertEqual(v5b.isValidated, true, 'processVisit: Fully Covered counts as validated');
+  t.assertEqual(v5b.validationType, 'full', 'processVisit: Fully Covered maps to validationType full');
   t.assertEqual(v5b.hasGpv, true, 'processVisit: a literal $0.00 GPV Amt is still present (not blank), so it still counts as a visit');
   t.assertEqual(v5b.gpv, 0, 'processVisit: but its parsed GPV value is 0, contributing nothing to GPV dollar totals');
 
   var v5c = RateEngine.processVisit(row({'Visit Coverage Type': 'Transient (No Coverage)', 'Validation Amt': '', 'GPV Amt': '$5.74'}), rateCards, noEb, 24);
   t.assertEqual(v5c.hasValidationAmt, false, 'processVisit: a blank Validation Amt cell means this visit never counts in the Validation report');
   t.assertEqual(v5c.validationType, null, 'processVisit: non-validated visits have a null validationType');
+
+  var v5d = RateEngine.processVisit(row({'Visit Coverage Type': 'Enterprise Subscription (Fully Covered)'}), rateCards, noEb, 24);
+  t.assertEqual(v5d.excluded, 'unsupported_coverage_type', 'processVisit: subscription visits are excluded even though their coverage type also says "Fully Covered"');
 
   var eb = { enabled: true, days:[false,true,true,true,true,true,false], entryStartMin:360, entryEndMin:540, exitCondition:'after', exitMin:960, price: 3 };
   var v6 = RateEngine.processVisit(row({'Visit Start At': '07:00:00 AM', 'Visit Exit  Event At': '05:00:00 PM'}), rateCards, eb, 24);
@@ -1135,12 +1148,12 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(v6.bandUpToMin, null, 'processVisit: Early Bird visits have no band, bandUpToMin is null');
 
   var v7 = RateEngine.processVisit(row({'Visit Coverage Type': 'Some Unrecognized Value'}), rateCards, noEb, 24);
-  t.assertEqual(v7.isValidated, false, 'processVisit: unrecognized coverage type fails safe as not validated');
+  t.assertEqual(v7.excluded, 'unsupported_coverage_type', 'processVisit: unrecognized coverage type fails safe as excluded, not silently counted');
 
   var rowMissingCoverage = row({});
   delete rowMissingCoverage['Visit Coverage Type'];
   var v8 = RateEngine.processVisit(rowMissingCoverage, rateCards, noEb, 24);
-  t.assertEqual(v8.isValidated, false, 'processVisit: missing Visit Coverage Type column does not throw, defaults to not validated');
+  t.assertEqual(v8.excluded, 'unsupported_coverage_type', 'processVisit: a missing Visit Coverage Type column does not throw, and is excluded rather than counted');
 });
 </script>
 
@@ -1153,7 +1166,8 @@ window.__engineTestCases.push(function(t){
     { excluded: 'special_event', actualPrice: 20 },
     { excluded: 'over_cutoff', actualPrice: 50 },
     { excluded: 'no_matching_rate_card', actualPrice: 7 },
-    { excluded: 'invalid_timestamp', actualPrice: 9 }
+    { excluded: 'invalid_timestamp', actualPrice: 9 },
+    { excluded: 'unsupported_coverage_type', actualPrice: 15 }
   ];
   var result = RateEngine.aggregateByBracket(visits);
 
@@ -1178,6 +1192,8 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(result.excluded.no_matching_rate_card.count, 1, 'aggregateByBracket: no_matching_rate_card excluded count');
   t.assertEqual(result.excluded.invalid_timestamp.count, 1, 'aggregateByBracket: invalid_timestamp excluded count');
   t.assertEqual(result.excluded.invalid_timestamp.actualTotal, 9, 'aggregateByBracket: invalid_timestamp excluded actual total');
+  t.assertEqual(result.excluded.unsupported_coverage_type.count, 1, 'aggregateByBracket: unsupported_coverage_type excluded count');
+  t.assertEqual(result.excluded.unsupported_coverage_type.actualTotal, 15, 'aggregateByBracket: unsupported_coverage_type excluded actual total');
 
   // Regression: a rate card named "__proto__" must not pollute Object.prototype or crash.
   var trapVisits = [
@@ -2498,7 +2514,8 @@ function renderCompare() {
     'Excluded — Special Event: ' + fmtNumber(result.excluded.special_event.count) + ' visits, ' + fmtMoney(result.excluded.special_event.actualTotal) + '<br>' +
     'Excluded — Over cutoff: ' + fmtNumber(result.excluded.over_cutoff.count) + ' visits, ' + fmtMoney(result.excluded.over_cutoff.actualTotal) + '<br>' +
     'Excluded — No matching rate card: ' + fmtNumber(result.excluded.no_matching_rate_card.count) + ' visits, ' + fmtMoney(result.excluded.no_matching_rate_card.actualTotal) + '<br>' +
-    'Excluded — Invalid/missing timestamp: ' + fmtNumber(result.excluded.invalid_timestamp.count) + ' visits, ' + fmtMoney(result.excluded.invalid_timestamp.actualTotal) +
+    'Excluded — Invalid/missing timestamp: ' + fmtNumber(result.excluded.invalid_timestamp.count) + ' visits, ' + fmtMoney(result.excluded.invalid_timestamp.actualTotal) + '<br>' +
+    'Excluded — Unsupported coverage type (not Transient/Fully-Covered Validation): ' + fmtNumber(result.excluded.unsupported_coverage_type.count) + ' visits, ' + fmtMoney(result.excluded.unsupported_coverage_type.actualTotal) +
     '</div>';
 }
 
