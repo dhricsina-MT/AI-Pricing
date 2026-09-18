@@ -730,16 +730,33 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
     return bands;
   }
 
-  // A ladder's identity for merge purposes ignores the very last band's exact
-  // upToMin — it's an unbounded catch-all regardless of the number attached
-  // to it, so two days can agree on every real price break yet still
-  // disagree trivially on whichever one happened to record the single
-  // longest stay.
-  function ladderKey(bands) {
-    return bands.map(function(b, i){
-      return b.rate + '@' + (i === bands.length - 1 ? 'END' : b.upToMin);
-    }).join('|') + '/' + bands[0].startingMin;
+  // Two days are "the same" for grouping purposes if their per-bracket paid
+  // prices agree strongly enough — not just when their fully-consolidated
+  // ladders happen to match byte-for-byte. Real exports carry enough
+  // per-bracket noise that exact ladder matching rarely succeeds even when
+  // the true underlying rate genuinely is shared across days.
+  function bracketPriceMap(visits) {
+    var byBracket = {};
+    visits.forEach(function(v){
+      var b = Math.floor(v.durationMin / bracketMin) * bracketMin;
+      (byBracket[b] = byBracket[b] || []).push(v.price);
+    });
+    var map = {};
+    Object.keys(byBracket).forEach(function(b){
+      var paid = byBracket[b].filter(function(p){ return p > 0; });
+      if (paid.length >= minBracketSupport) map[b] = mode(paid);
+    });
+    return map;
   }
+
+  function similarity(mapA, mapB) {
+    var common = Object.keys(mapA).filter(function(k){ return mapB.hasOwnProperty(k); });
+    if (!common.length) return 0;
+    var agree = common.filter(function(k){ return mapA[k] === mapB[k]; }).length;
+    return agree / common.length;
+  }
+
+  var SIMILARITY_THRESHOLD = opts.mergeSimilarityThreshold === undefined ? 0.75 : opts.mergeSimilarityThreshold;
 
   function dayLabel(daysMask, windowName) {
     var isAllDays = daysMask.every(function(v){ return v; });
@@ -807,25 +824,35 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
     var dowKeys = Object.keys(win.byDay).map(Number);
     if (!dowKeys.length) return;
 
-    var groups = {}; // ladderKey -> [dayIndices], for days with a non-empty ladder
-    dowKeys.forEach(function(d){
-      var ladder = consolidate(win.byDay[d]);
-      if (!ladder.length) { insufficientDataCount += win.byDay[d].length; return; }
-      var key = ladderKey(ladder);
-      (groups[key] = groups[key] || []).push(d);
+    // Process Mon..Sun in order, growing a set of clusters as we go: each
+    // new day joins the first existing cluster its bracket-price map agrees
+    // with strongly enough, comparing against that cluster's CURRENT pooled
+    // data (which gets statistically stronger, not noisier, as more days
+    // join it) — otherwise it starts a cluster of its own.
+    var orderedDays = MON_FIRST.filter(function(d){ return dowKeys.indexOf(d) > -1; });
+    var clusters = []; // [{ days: [d,...], visits: [...] }]
+    orderedDays.forEach(function(d){
+      var dayVisits = win.byDay[d];
+      var dayMap = bracketPriceMap(dayVisits);
+      var match = clusters.find(function(cluster){
+        return similarity(dayMap, bracketPriceMap(cluster.visits)) >= SIMILARITY_THRESHOLD;
+      });
+      if (match) {
+        match.days.push(d);
+        match.visits = match.visits.concat(dayVisits);
+      } else {
+        clusters.push({ days: [d], visits: dayVisits.slice() });
+      }
     });
 
-    Object.keys(groups).forEach(function(key){
-      var days = groups[key];
-      var combinedVisits = [];
-      days.forEach(function(d){ combinedVisits = combinedVisits.concat(win.byDay[d]); });
-      // Re-consolidate against the combined visits of every day in the group
-      // (not just one day's numbers) for a statistically stronger, single
-      // final ladder now that we know these days belong together.
-      var bands = consolidate(combinedVisits);
-      if (!bands.length) { insufficientDataCount += combinedVisits.length; return; }
+    clusters.forEach(function(cluster){
+      // Re-consolidate against the cluster's combined visits (not any single
+      // day's numbers) for a statistically stronger, single final ladder now
+      // that we know these days belong together.
+      var bands = consolidate(cluster.visits);
+      if (!bands.length) { insufficientDataCount += cluster.visits.length; return; }
       var daysMask = [false, false, false, false, false, false, false];
-      days.forEach(function(d){ daysMask[d] = true; });
+      cluster.days.forEach(function(d){ daysMask[d] = true; });
       newCards.push({
         name: dayLabel(daysMask, multiWindow ? winName : null),
         days: daysMask,
@@ -1535,6 +1562,36 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(eveCardResult.name, 'Evening — Mon', 'inferRateBands: Evening window card is prefixed too');
   t.assertEqual(eveCardResult.startMin, 1080, 'inferRateBands: Evening window card starts at eveningStartMin');
   t.assertEqual(eveCardResult.endMin, 360, 'inferRateBands: Evening window card wraps to dayStartMin (overnight-style span)');
+
+  // Two days that agree on MOST brackets but disagree on one (real-world
+  // noise, not a genuine price difference) still merge — grouping is based
+  // on overall similarity of the two days' bracket-price data, not on their
+  // fully-consolidated ladders matching byte-for-byte. A third day with a
+  // completely different price profile stays separate.
+  var closeRows = [];
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Price Amt': '$10.00' }, '7/6/2026')); // Mon, 60min $10
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '12:00:00 PM', 'Price Amt': '$15.00' }, '7/6/2026')); // Mon, 120min $15
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '1:00:00 PM', 'Price Amt': '$20.00' }, '7/6/2026')); // Mon, 180min $20
+  for (var i = 0; i < 8; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '2:00:00 PM', 'Price Amt': '$20.00' }, '7/6/2026')); // Mon, 240min $20
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '3:00:00 PM', 'Price Amt': '$20.00' }, '7/6/2026')); // Mon, 300min $20
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Price Amt': '$10.00' }, '7/7/2026')); // Tue, 60min $10 (agrees)
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '12:00:00 PM', 'Price Amt': '$15.00' }, '7/7/2026')); // Tue, 120min $15 (agrees)
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '1:00:00 PM', 'Price Amt': '$20.00' }, '7/7/2026')); // Tue, 180min $20 (agrees)
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '2:00:00 PM', 'Price Amt': '$15.00' }, '7/7/2026')); // Tue, 240min $15 (DISAGREES with Mon's $20)
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '3:00:00 PM', 'Price Amt': '$20.00' }, '7/7/2026')); // Tue, 300min $20 (agrees)
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Price Amt': '$5.00' }, '7/8/2026')); // Wed, 60min $5 — genuinely different
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '12:00:00 PM', 'Price Amt': '$5.00' }, '7/8/2026')); // Wed, 120min $5
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '1:00:00 PM', 'Price Amt': '$5.00' }, '7/8/2026')); // Wed, 180min $5
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '2:00:00 PM', 'Price Amt': '$5.00' }, '7/8/2026')); // Wed, 240min $5
+  for (var i = 0; i < 6; i++) closeRows.push(withDate({ 'Visit Exit  Event At': '3:00:00 PM', 'Price Amt': '$5.00' }, '7/8/2026')); // Wed, 300min $5
+
+  var closeResult = RateEngine.inferRateBands(closeRows, [], noEb);
+  t.assertEqual(closeResult.newCards.length, 2, 'inferRateBands: Mon+Tue merge despite disagreeing on 1 of 5 brackets (80% agreement clears the similarity threshold); Wed stays separate');
+  var monTueClose = closeResult.newCards.find(function(c){ return c.days[1] && c.days[2]; });
+  var wedClose = closeResult.newCards.find(function(c){ return c.days[3]; });
+  t.assertEqual(monTueClose.name, 'Mon, Tue', 'inferRateBands: the close-but-not-identical days still merge into one card');
+  t.assertEqual(monTueClose.bands.map(function(b){ return b.rate; }), [10, 15, 20], 'inferRateBands: the merged ladder resolves the disputed bracket by combined vote (Mon\'s 8 $20s beat Tue\'s 6 $15s)');
+  t.assertEqual(wedClose.bands[0].rate, 5, 'inferRateBands: Wednesday\'s genuinely different pricing keeps it out of the Mon/Tue cluster');
 
   // A day-of-week bucket with too little total data to infer anything (below
   // minBracketSupport) contributes no card, and is reported as insufficient
