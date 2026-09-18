@@ -2466,10 +2466,24 @@ function appendReportBlock(report, el) {
   });
 }
 
+function renderTotalsSummary(totals) {
+  document.getElementById('totalsSummary').innerHTML =
+    '<div class="statRow">' +
+    '<div class="card statCard"><div class="statLabel">Traditional Rate Revenue</div><div class="statValue">' + fmtMoney(totals.staticTotal) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">AI Revenue</div><div class="statValue">' + fmtMoney(totals.actualTotal) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">Variance</div><div class="statValue">' + fmtMoney(totals.delta) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">Percent</div><div class="statValue">' + fmtPercent(totals.percentOfStatic) + '</div></div>' +
+    '</div>';
+}
+
+// Returns the combined grand total across every pool actually rendered
+// (GPV Pool, plus Validation Pool when shown) so the top summary bubbles
+// always agree with the tables below them, instead of being computed
+// separately from ALL non-excluded visits regardless of payment method.
 function renderRateReport() {
   var el = document.getElementById('rateReport');
   el.innerHTML = '';
-  if (!state.processedVisits) return;
+  if (!state.processedVisits) return { staticTotal: 0, actualTotal: 0, delta: 0, percentOfStatic: null };
 
   var hasValidationData = state.processedVisits.some(function(v){ return !v.excluded && v.hasValidationAmt; });
   var showValidationPool = hasValidationData && (state.includeFullValidations || state.includePartialValidations);
@@ -2477,6 +2491,9 @@ function renderRateReport() {
   if (showValidationPool) el.insertAdjacentHTML('beforeend', '<h3>GPV Pool</h3>');
   var gpvReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird);
   appendReportBlock(gpvReport, el);
+
+  var combinedStatic = gpvReport.summary.total.staticTotal;
+  var combinedActual = gpvReport.summary.total.actualTotal;
 
   if (showValidationPool) {
     el.insertAdjacentHTML('beforeend', '<h3>Validation Pool</h3>');
@@ -2490,24 +2507,20 @@ function renderRateReport() {
       actualField: 'validationAmt'
     });
     appendReportBlock(validationReport, el);
+    combinedStatic += validationReport.summary.total.staticTotal;
+    combinedActual += validationReport.summary.total.actualTotal;
   }
+
+  var pct = RateEngine.computeDeltaPercents(combinedStatic, combinedActual);
+  return { staticTotal: combinedStatic, actualTotal: combinedActual, delta: pct.delta, percentOfStatic: pct.percentOfStatic };
 }
 
 function renderCompare() {
   var result = state.compareResult;
-  var totalsEl = document.getElementById('totalsSummary');
   var excludedEl = document.getElementById('excludedSummary');
-  if (!result) { totalsEl.innerHTML = ''; document.getElementById('rateReport').innerHTML = ''; excludedEl.innerHTML = ''; return; }
+  if (!result) { document.getElementById('totalsSummary').innerHTML = ''; document.getElementById('rateReport').innerHTML = ''; excludedEl.innerHTML = ''; return; }
 
-  totalsEl.innerHTML =
-    '<div class="statRow">' +
-    '<div class="card statCard"><div class="statLabel">Traditional Rate Revenue</div><div class="statValue">' + fmtMoney(result.totals.staticTotal) + '</div></div>' +
-    '<div class="card statCard"><div class="statLabel">AI Revenue</div><div class="statValue">' + fmtMoney(result.totals.actualTotal) + '</div></div>' +
-    '<div class="card statCard"><div class="statLabel">Variance</div><div class="statValue">' + fmtMoney(result.totals.delta) + '</div></div>' +
-    '<div class="card statCard"><div class="statLabel">Percent</div><div class="statValue">' + fmtPercent(result.totals.percentOfStatic) + '</div></div>' +
-    '</div>';
-
-  renderRateReport();
+  renderTotalsSummary(renderRateReport());
 
   excludedEl.innerHTML =
     '<div class="card">' +
@@ -2521,11 +2534,11 @@ function renderCompare() {
 
 document.getElementById('includeFullValidations').addEventListener('change', function(e){
   state.includeFullValidations = e.target.checked;
-  renderRateReport();
+  renderTotalsSummary(renderRateReport());
 });
 document.getElementById('includePartialValidations').addEventListener('change', function(e){
   state.includePartialValidations = e.target.checked;
-  renderRateReport();
+  renderTotalsSummary(renderRateReport());
 });
 </script>
 
@@ -2563,7 +2576,7 @@ window.__engineTestCases.push(function(t){
 
   var statCards = document.querySelectorAll('#totalsSummary .statCard');
   t.assertEqual(statCards.length, 4, 'renderCompare: 4 summary bubbles rendered (Traditional Rate Revenue, AI Revenue, Variance, Percent)');
-  t.assertEqual(statCards[0].textContent.indexOf('$30.00') > -1, true, 'renderCompare: first bubble\'s static total is $30 (3 visits x $10, including the gpv=0 one) — bubbles are unaffected by the report\'s gpv filter');
+  t.assertEqual(statCards[0].textContent.indexOf('$20.00') > -1, true, 'renderCompare: first bubble\'s static total is $20 (2 qualifying visits x $10) — bubbles now match the GPV Pool report\'s total, excluding the gpv=0 visit');
 
   var cards = document.querySelectorAll('#rateReport .card');
   t.assertEqual(cards.length, 2, 'renderRateReport: one section card for the one rate card, plus a Summary card (Early Bird disabled)');
