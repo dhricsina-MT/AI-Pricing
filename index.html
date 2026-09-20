@@ -102,16 +102,13 @@ select:disabled{opacity:.4;cursor:not-allowed}
       <div class="ctl"><label>Reconciliation cutoff (hours)</label><input type="number" id="cutoffHours" value="24"></div>
     </div>
     <div class="row">
-      <div id="historicalDropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--teal);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
+      <div id="historicalDropZone" style="width:150px;height:150px;box-sizing:border-box;padding:0 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--teal);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
         <div style="font-size:26px;color:var(--teal)">&#8681;</div>
         <h3 style="margin:6px 0 2px;font-size:13px">Drop historical visit CSV</h3>
         <div id="historicalDropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
       </div>
       <input type="file" id="historicalFileInput" style="display:none" accept=".csv">
-      <div class="ctl" style="justify-content:flex-end">
-        <button id="inferBandsBtn" class="btnPrimary">Infer &amp; Apply Rate Bands</button>
-      </div>
-      <div id="dropZone" style="width:150px;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--brand);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
+      <div id="dropZone" style="width:150px;height:150px;box-sizing:border-box;padding:0 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--brand);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
         <div style="font-size:26px;color:var(--brand)">&#8681;</div>
         <h3 style="margin:6px 0 2px;font-size:13px">Drop visit CSV</h3>
         <div id="dropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
@@ -160,11 +157,13 @@ select:disabled{opacity:.4;cursor:not-allowed}
   </div>
   <p class="sub">Actual (AI-priced) charges vs. what the static rate table would have charged.</p>
   <div id="totalsSummary"></div>
+  <div id="secondaryTotals"></div>
   <div id="narrative"></div>
   <div id="rateReport"></div>
 </div>
 <div id="fullDataPage" class="page">
   <h2>Full Data</h2>
+  <div id="gpvDetailReport"></div>
   <div id="validationPoolReport"></div>
   <div id="excludedSummary"></div>
 </div>
@@ -2237,7 +2236,7 @@ historicalFileInput.addEventListener('change', function(e){
 function applyHistoricalFileBuffer(arrayBuffer, filename) {
   state.historicalRows = RateEngine.parseVisitFile(arrayBuffer);
   document.getElementById('historicalDropState').textContent = filename + ' (' + state.historicalRows.length + ' visits)';
-  document.getElementById('inferStatus').textContent = '';
+  runInfer();
 }
 function handleHistoricalFile(file) {
   if (!file) return;
@@ -2266,7 +2265,9 @@ document.getElementById('discoverQuickSetupCard').addEventListener('input', func
 });
 renderDiscoverSetup();
 
-document.getElementById('inferBandsBtn').addEventListener('click', function(){
+// Runs automatically whenever a historical file is dropped in — no button,
+// no separate confirmation step; dropping the file IS the action.
+function runInfer(){
   var statusEl = document.getElementById('inferStatus');
   if (!state.historicalRows.length) { statusEl.textContent = 'Drop a historical visit CSV first.'; return; }
   var result = RateEngine.inferRateBands(state.historicalRows, state.rateCards, state.earlyBird, state.discoverSetup);
@@ -2305,7 +2306,7 @@ document.getElementById('inferBandsBtn').addEventListener('click', function(){
   var summary = parts.length ? parts.join(', ') + '.' : 'No visits matched any window.';
   if (result.insufficientDataCount) summary += ' ' + result.insufficientDataCount + ' visits had too little data to confidently infer a rate.';
   statusEl.textContent = summary;
-});
+}
 </script>
 
 <script>
@@ -2369,7 +2370,7 @@ function formatVarianceCell(diff, upliftPct) {
   return (diff >= 0 ? '+' : '') + fmtMoney(diff) + ' (' + (upliftPct === null ? '—' : fmtPercent(upliftPct)) + ')';
 }
 
-function appendReportBlock(report, el) {
+function appendSummaryCard(report, el) {
   var summaryCard = document.createElement('div');
   summaryCard.className = 'card';
   var summaryHtml = '<div class="bracketName">Summary</div>' +
@@ -2414,7 +2415,9 @@ function appendReportBlock(report, el) {
   summaryHtml += '</tbody></table>';
   summaryCard.innerHTML = summaryHtml;
   el.appendChild(summaryCard);
+}
 
+function appendSectionCards(report, el) {
   report.sections.forEach(function(section){
     var card = document.createElement('div');
     card.className = 'card';
@@ -2437,6 +2440,29 @@ function renderTotalsSummary(totals) {
     '<div class="card statCard"><div class="statLabel">AI Revenue</div><div class="statValue">' + fmtMoney(totals.actualTotal) + '</div></div>' +
     '<div class="card statCard"><div class="statLabel">Variance</div><div class="statValue">' + fmtMoney(totals.delta) + '</div></div>' +
     '<div class="card statCard"><div class="statLabel">Percent</div><div class="statValue">' + fmtPercent(totals.percentOfStatic) + '</div></div>' +
+    '</div>';
+}
+
+// Second row: straight from the AI data itself (Price Amt by coverage type),
+// independent of the GPV/Validation Pool split above. Fourth bubble is a
+// placeholder — intentionally blank for now.
+function renderSecondaryTotals() {
+  var el = document.getElementById('secondaryTotals');
+  if (!state.processedVisits) { el.innerHTML = ''; return; }
+
+  var transientTotal = 0, fullValidatedTotal = 0;
+  state.processedVisits.forEach(function(v){
+    if (v.excluded) return;
+    if (v.coverageType === 'Transient (No Coverage)') transientTotal += v.actualPrice;
+    else if (v.coverageType === 'Validation (Fully Covered)') fullValidatedTotal += v.actualPrice;
+  });
+
+  el.innerHTML =
+    '<div class="statRow">' +
+    '<div class="card statCard"><div class="statLabel">Total Transient</div><div class="statValue">' + fmtMoney(transientTotal) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">Total Full Validated</div><div class="statValue">' + fmtMoney(fullValidatedTotal) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">Transient + Full Validated</div><div class="statValue">' + fmtMoney(transientTotal + fullValidatedTotal) + '</div></div>' +
+    '<div class="card statCard"><div class="statLabel">Hold for later</div><div class="statValue">&mdash;</div></div>' +
     '</div>';
 }
 
@@ -2470,17 +2496,23 @@ function renderNarrative(totals, gpvReport, validationReport) {
 // always agree with the tables below them, instead of being computed
 // separately from ALL non-excluded visits regardless of payment method.
 function renderRateReport() {
-  var gpvEl = document.getElementById('rateReport');
+  var summaryEl = document.getElementById('rateReport');
+  var gpvDetailEl = document.getElementById('gpvDetailReport');
   var validationEl = document.getElementById('validationPoolReport');
-  gpvEl.innerHTML = '';
+  summaryEl.innerHTML = '';
+  gpvDetailEl.innerHTML = '';
   validationEl.innerHTML = '';
   if (!state.processedVisits) return { totals: { staticTotal: 0, actualTotal: 0, delta: 0, percentOfStatic: null }, gpvReport: null, validationReport: null };
 
   var hasValidationData = state.processedVisits.some(function(v){ return !v.excluded && v.hasValidationAmt; });
   var showValidationPool = hasValidationData && state.includeFullValidations;
 
+  // GPV Pool: only the grand-totals Summary card stays on the Summary tab;
+  // the per-section detail tables live on Full Data instead.
   var gpvReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird);
-  appendReportBlock(gpvReport, gpvEl);
+  appendSummaryCard(gpvReport, summaryEl);
+  gpvDetailEl.insertAdjacentHTML('beforeend', '<h3>GPV Pool</h3>');
+  appendSectionCards(gpvReport, gpvDetailEl);
 
   var combinedStatic = gpvReport.summary.total.staticTotal;
   var combinedActual = gpvReport.summary.total.actualTotal;
@@ -2492,7 +2524,8 @@ function renderRateReport() {
       qualifies: function(v){ return v.hasValidationAmt && v.validationType === 'full'; },
       actualField: 'validationAmt'
     });
-    appendReportBlock(validationReport, validationEl);
+    appendSummaryCard(validationReport, validationEl);
+    appendSectionCards(validationReport, validationEl);
     combinedStatic += validationReport.summary.total.staticTotal;
     combinedActual += validationReport.summary.total.actualTotal;
   }
@@ -2510,8 +2543,10 @@ function renderCompare() {
   var excludedEl = document.getElementById('excludedSummary');
   if (!result) {
     document.getElementById('totalsSummary').innerHTML = '';
+    document.getElementById('secondaryTotals').innerHTML = '';
     document.getElementById('narrative').innerHTML = '';
     document.getElementById('rateReport').innerHTML = '';
+    document.getElementById('gpvDetailReport').innerHTML = '';
     document.getElementById('validationPoolReport').innerHTML = '';
     excludedEl.innerHTML = '';
     return;
@@ -2519,6 +2554,7 @@ function renderCompare() {
 
   var report = renderRateReport();
   renderTotalsSummary(report.totals);
+  renderSecondaryTotals();
   renderNarrative(report.totals, report.gpvReport, report.validationReport);
 
   excludedEl.innerHTML =
@@ -2575,10 +2611,14 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(statCards.length, 4, 'renderCompare: 4 summary bubbles rendered (Traditional Rate Revenue, AI Revenue, Variance, Percent)');
   t.assertEqual(statCards[0].textContent.indexOf('$20.00') > -1, true, 'renderCompare: first bubble\'s static total is $20 (2 qualifying visits x $10) — bubbles now match the GPV Pool report\'s total, excluding the gpv=0 visit');
 
-  var cards = document.querySelectorAll('#rateReport .card');
-  t.assertEqual(cards.length, 2, 'renderRateReport: one section card for the one rate card, plus a Summary card (Early Bird disabled)');
-  var summaryCard = cards[0];
-  var sectionCard = cards[1];
+  var summaryCards = document.querySelectorAll('#rateReport .card');
+  t.assertEqual(summaryCards.length, 1, 'renderRateReport: only the grand-totals Summary card lives on the Summary tab now');
+  var summaryCard = summaryCards[0];
+
+  var detailCards = document.querySelectorAll('#gpvDetailReport .card');
+  t.assertEqual(detailCards.length, 1, 'renderRateReport: the per-section detail card for the one rate card lives on the Full Data tab (Early Bird disabled)');
+  var sectionCard = detailCards[0];
+  t.assertEqual(document.getElementById('gpvDetailReport').textContent.indexOf('GPV Pool') > -1, true, 'renderRateReport: the Full Data detail section is labeled GPV Pool');
   t.assertEqual(sectionCard.textContent.indexOf('Day') > -1, true, 'renderRateReport: section labeled with the card name');
 
   var tables = sectionCard.querySelectorAll('table.reportTable');
@@ -2614,7 +2654,7 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(varianceText.indexOf('+$2.00') > -1, true, 'renderRateReport: Variance table shows the per-day $ uplift (12 actual - 10 static = +$2.00)');
   t.assertEqual(varianceText.indexOf('20.0%') > -1, true, 'renderRateReport: Variance table shows the per-day uplift % alongside the $ amount');
 
-  t.assertEqual(summaryCard.textContent.indexOf('Summary') > -1, true, 'renderRateReport: a Summary card is rendered first, before the per-section tables');
+  t.assertEqual(summaryCard.textContent.indexOf('Summary') > -1, true, 'renderRateReport: the Summary card is rendered on the Summary tab');
   t.assertEqual(summaryCard.textContent.indexOf('Total') > -1, true, 'renderRateReport: Summary card includes a grand Total row');
   var summaryRows = summaryCard.querySelectorAll('table.summaryTable tbody tr');
   // Day row + Total row + spacer row + ATP header row + ATP Day row + ATP Total row = 6.
@@ -2634,6 +2674,16 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(narrative.textContent.indexOf('$20.00') > -1, true, 'renderNarrative: paragraph mentions the traditional total');
   t.assertEqual(narrative.querySelectorAll('li').length, 1, 'renderNarrative: one bullet per GPV Pool section (no Validation Pool bullet since there is no validation data)');
   t.assertEqual(narrative.textContent.indexOf('Day') > -1, true, 'renderNarrative: bullet names the section');
+
+  // Second bubble row: straight sums from the AI data by coverage type,
+  // independent of the GPV Pool's gpv>0 filter — the gpv=0 visit still
+  // counts here since it's a real Transient transaction with a real Price Amt.
+  var secondaryCards = document.querySelectorAll('#secondaryTotals .statCard');
+  t.assertEqual(secondaryCards.length, 4, 'renderSecondaryTotals: 4 bubbles (Total Transient, Total Full Validated, combined total, hold-for-later)');
+  t.assertEqual(secondaryCards[0].textContent.indexOf('$36.00') > -1, true, 'renderSecondaryTotals: Total Transient sums all 3 Transient visits\' actual price ($12 x 3), including the gpv=0 one');
+  t.assertEqual(secondaryCards[1].textContent.indexOf('$0.00') > -1, true, 'renderSecondaryTotals: Total Full Validated is $0 when there are no Fully Covered validation visits');
+  t.assertEqual(secondaryCards[2].textContent.indexOf('$36.00') > -1, true, 'renderSecondaryTotals: third bubble is Transient + Full Validated combined');
+  t.assertEqual(secondaryCards[3].textContent.indexOf('Hold for later') > -1, true, 'renderSecondaryTotals: fourth bubble is an explicit placeholder, cleared for now');
 });
 </script>
 
@@ -2653,8 +2703,12 @@ window.__engineTestCases.push(function(t){
 
   t.assertEqual(document.getElementById('narrative'), document.querySelector('#summaryPage #narrative'), 'restructure: the narrative lives on the Summary page');
   t.assertEqual(document.getElementById('totalsSummary'), document.querySelector('#summaryPage #totalsSummary'), 'restructure: the summary bubbles live on the Summary page');
-  t.assertEqual(document.getElementById('rateReport'), document.querySelector('#summaryPage #rateReport'), 'restructure: the GPV Pool report lives on the Summary page, below the bubbles and narrative');
-  t.assertEqual(document.querySelector('#fullDataPage #rateReport'), null, 'restructure: the GPV Pool report is NOT on the Full Data page');
+  t.assertEqual(document.getElementById('secondaryTotals'), document.querySelector('#summaryPage #secondaryTotals'), 'restructure: the second bubble row lives on the Summary page');
+  t.assertEqual(document.getElementById('rateReport'), document.querySelector('#summaryPage #rateReport'), 'restructure: only the GPV Pool\'s grand-totals Summary card lives on the Summary page, below the bubbles and narrative');
+  t.assertEqual(document.querySelector('#fullDataPage #rateReport'), null, 'restructure: the GPV Pool Summary card is NOT on the Full Data page');
+
+  t.assertEqual(document.getElementById('gpvDetailReport'), document.querySelector('#fullDataPage #gpvDetailReport'), 'restructure: the GPV Pool\'s per-section detail tables live on the Full Data page');
+  t.assertEqual(document.querySelector('#summaryPage #gpvDetailReport'), null, 'restructure: the GPV Pool detail tables are NOT on the Summary page');
 
   t.assertEqual(document.getElementById('validationPoolReport'), document.querySelector('#fullDataPage #validationPoolReport'), 'restructure: the Validation Pool report lives on the Full Data page');
   t.assertEqual(document.getElementById('excludedSummary'), document.querySelector('#fullDataPage #excludedSummary'), 'restructure: the excluded-visits breakdown lives on the Full Data page');
@@ -2665,6 +2719,8 @@ window.__engineTestCases.push(function(t){
 
   t.assertEqual(document.getElementById('discoverEbEnabled'), null, 'restructure: there is only one Early Bird entry area now (the Discover mirror is gone)');
   t.assertEqual(document.getElementById('ebEnabled') !== null, true, 'restructure: Setup\'s single Early Bird toggle remains');
+
+  t.assertEqual(document.getElementById('inferBandsBtn'), null, 'restructure: the Infer button is removed — dropping the historical file runs inference automatically');
 });
 </script>
 
@@ -2731,22 +2787,20 @@ window.__engineTestCases.push(function(t){
 
   t.assertEqual(state.historicalRows.length, 6, 'historicalDropZone: applyHistoricalFileBuffer parses the file into state.historicalRows');
   t.assertEqual(document.getElementById('historicalDropState').textContent, 'historical-visits.csv (6 visits)', 'historicalDropZone: status text shows filename and visit count');
-  t.assertEqual(state.rateCards[0].bands[0].rate, null, 'historicalDropZone: dropping the file alone does not touch the rate cards yet');
 
-  document.getElementById('inferBandsBtn').click();
-
-  t.assertEqual(state.rateCards.length, 1, 'inferBandsBtn: no new cards created when every visit matches the existing Day card');
-  t.assertEqual(state.rateCards[0].bands.length, 1, 'inferBandsBtn: applies the inferred band to the matching rate card');
-  t.assertEqual(state.rateCards[0].bands[0].rate, 5, 'inferBandsBtn: inferred rate matches the modal historical price');
-  t.assertEqual(state.rateCards[0].bands[0].upToMin, 1440, 'inferBandsBtn: the inferred band\'s upper bound is the 24-hour ceiling, not one bracket past the observed duration');
+  // Dropping the file runs inference immediately — no separate button/step.
+  t.assertEqual(state.rateCards.length, 1, 'runInfer: no new cards created when every visit matches the existing Day card');
+  t.assertEqual(state.rateCards[0].bands.length, 1, 'runInfer: applies the inferred band to the matching rate card');
+  t.assertEqual(state.rateCards[0].bands[0].rate, 5, 'runInfer: inferred rate matches the modal historical price');
+  t.assertEqual(state.rateCards[0].bands[0].upToMin, 1440, 'runInfer: the inferred band\'s upper bound is the 24-hour ceiling, not one bracket past the observed duration');
   var rateInput = document.querySelectorAll('#rateCardList .card')[0].querySelector('input[data-band-field="rate"]');
-  t.assertEqual(rateInput.value, '5', 'inferBandsBtn: the re-rendered Setup UI shows the inferred rate');
-  t.assertEqual(document.getElementById('inferStatus').textContent.indexOf('filled bands for 1 existing rate card') > -1, true, 'inferBandsBtn: status line reports how many existing cards were filled');
+  t.assertEqual(rateInput.value, '5', 'runInfer: the re-rendered Setup UI shows the inferred rate');
+  t.assertEqual(document.getElementById('inferStatus').textContent.indexOf('filled bands for 1 existing rate card') > -1, true, 'runInfer: status line reports how many existing cards were filled');
 
   state.historicalRows = [];
   document.getElementById('inferStatus').textContent = '';
-  document.getElementById('inferBandsBtn').click();
-  t.assertEqual(document.getElementById('inferStatus').textContent, 'Drop a historical visit CSV first.', 'inferBandsBtn: clicking with no file loaded shows a guidance message instead of throwing');
+  runInfer();
+  t.assertEqual(document.getElementById('inferStatus').textContent, 'Drop a historical visit CSV first.', 'runInfer: running with no file loaded shows a guidance message instead of throwing');
 });
 </script>
 
@@ -2769,15 +2823,13 @@ window.__engineTestCases.push(function(t){
   for (var i = 0; i < 6; i++) lines.push((i + 7) + '\t7/8/2026\t10:00:00 AM\t7/8/2026\t11:00:00 AM\tFalse\t$20.00\t\t$20.00\tTransient (No Coverage)');
   applyHistoricalFileBuffer(t.utf16leEncode(header + lines.join("\n")), 'blank-start.csv');
 
-  document.getElementById('inferBandsBtn').click();
-
-  t.assertEqual(state.rateCards.length, 2, 'inferBandsBtn: the blank starter card is replaced by the two auto-created cards, not left alongside them');
+  t.assertEqual(state.rateCards.length, 2, 'runInfer: the blank starter card is replaced by the two auto-created cards, not left alongside them');
   var monCard = state.rateCards.find(function(c){ return c.days[1]; });
   var wedCard = state.rateCards.find(function(c){ return c.days[3]; });
-  t.assertEqual(monCard.name, 'Mon', 'inferBandsBtn: auto-created card is named from its day set');
-  t.assertEqual(monCard.bands[0].rate, 10, 'inferBandsBtn: auto-created Monday card carries its inferred rate');
-  t.assertEqual(wedCard.bands[0].rate, 20, 'inferBandsBtn: auto-created Wednesday card carries its own distinct inferred rate');
-  t.assertEqual(document.getElementById('inferStatus').textContent.indexOf('created 2 new rate cards') > -1, true, 'inferBandsBtn: status line reports how many new cards were created');
+  t.assertEqual(monCard.name, 'Mon', 'runInfer: auto-created card is named from its day set');
+  t.assertEqual(monCard.bands[0].rate, 10, 'runInfer: auto-created Monday card carries its inferred rate');
+  t.assertEqual(wedCard.bands[0].rate, 20, 'runInfer: auto-created Wednesday card carries its own distinct inferred rate');
+  t.assertEqual(document.getElementById('inferStatus').textContent.indexOf('created 2 new rate cards') > -1, true, 'runInfer: status line reports how many new cards were created');
 });
 </script>
 
