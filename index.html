@@ -20,6 +20,7 @@ header{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var
 nav{display:flex;gap:4px;justify-content:center}
 nav button{padding:8px 16px;border:none;background:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;color:var(--text)}
 nav button.active{background:var(--brand);color:#fff}
+nav button:disabled{opacity:.4;cursor:not-allowed}
 .page{max-width:1200px;margin:0 auto;padding:20px;display:none}
 .page.active{display:block}
 .toggle{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;cursor:pointer}
@@ -60,6 +61,7 @@ select:disabled{opacity:.4;cursor:not-allowed}
 .statCard{flex:1 1 0;text-align:center}
 .statCard .statLabel{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin-bottom:4px}
 .statCard .statValue{font-size:20px;font-weight:700}
+.statCard.statHighlight{border:2px solid var(--brand)}
 .bracketName{font-size:15px;font-weight:700}
 .bracketMeta{color:var(--muted);font-size:13px;margin-top:2px}
 .reportTable{width:100%;table-layout:fixed;border-collapse:collapse;margin-top:6px;font-size:13px}
@@ -80,6 +82,20 @@ select:disabled{opacity:.4;cursor:not-allowed}
 .summaryTable{width:100%}
 .summaryTable th:nth-child(n),.summaryTable td:nth-child(n){width:20%}
 .summaryTable tr.spacerRow td{padding:10px 0 0;border:none;background:none}
+#helpOverlay{display:none;position:fixed;inset:0;background:rgba(2,0,59,.55);z-index:100;align-items:center;justify-content:center;padding:20px}
+#helpOverlay.open{display:flex}
+#helpModal{background:var(--surface);color:var(--text);border-radius:14px;max-width:760px;width:100%;max-height:88vh;overflow-y:auto;padding:22px 26px;box-shadow:0 10px 40px rgba(0,0,0,.35);font-size:14px;line-height:1.5}
+#helpModal h2{margin:0}
+#helpModal h3{margin:18px 0 6px;font-size:15px;color:var(--brand)}
+#helpModal ul,#helpModal ol{margin:4px 0 4px 20px;padding:0}
+#helpModal li{margin-bottom:4px}
+#helpModal .helpHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+#helpModal .helpNote{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0}
+#helpModal a{color:var(--brand)}
+#pdfModal{display:none;position:fixed;inset:0;background:rgba(2,0,59,.55);z-index:110;align-items:center;justify-content:center}
+#pdfModal .box{background:var(--surface);color:var(--text);padding:20px;border-radius:12px;min-width:360px;border:1px solid var(--line)}
+#pdfModal .btn{background:var(--brand);color:#fff;border:1px solid var(--brand);padding:8px 14px;border-radius:9px;font-weight:600;cursor:pointer;font-size:13px}
+#pdfModal .btn.ghost{background:transparent;border-color:var(--line);color:var(--text)}
 </style>
 </head>
 <body>
@@ -90,8 +106,11 @@ select:disabled{opacity:.4;cursor:not-allowed}
     <button data-tab="setup" class="active">Setup</button>
     <button data-tab="summary">Summary</button>
     <button data-tab="fullData">Full Data</button>
+    <button data-tab="yoy" id="yoyTabBtn" disabled title="Drop a comparison visit CSV on the Setup tab to enable">Volume Compare</button>
   </nav>
   <div class="spacer"></div>
+  <button type="button" id="printBtn" class="btnGhost" style="margin-right:6px" title="Print or save the current tab as PDF">&#128424; Print</button>
+  <button type="button" id="helpBtn" class="btnGhost" title="How to use this tool and where to get the data">? How to Use</button>
   <div class="toggle" id="nightToggle"><span>Night</span><span class="switch"></span></div>
 </header>
 <div id="setupPage" class="page active">
@@ -99,7 +118,8 @@ select:disabled{opacity:.4;cursor:not-allowed}
   <p class="sub">Build your static rate table, then drop in a visit export below.</p>
   <div class="card">
     <div class="row">
-      <div class="ctl"><label>Reconciliation cutoff (hours)</label><input type="number" id="cutoffHours" value="24"></div>
+      <div class="ctl"><label>Reconciliation cutoff (hours)</label><div style="display:flex;gap:6px;align-items:center"><input type="number" id="cutoffHours" value="24"><button type="button" id="cutoffRefreshBtn" class="btnPrimary" title="Apply settings and recalculate">Refresh</button></div></div>
+      <div class="ctl"><label>Scan to pay</label><div style="display:flex;gap:6px;align-items:center"><select id="scanToPayMode"><option value="auto">Auto-detect</option><option value="on">On</option><option value="off">Off</option></select><span id="scanToPayStatus" style="font-size:11px;color:var(--muted)"></span></div></div>
     </div>
     <div class="row">
       <div id="historicalDropZone" style="width:150px;height:150px;box-sizing:border-box;padding:0 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--teal);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
@@ -114,6 +134,12 @@ select:disabled{opacity:.4;cursor:not-allowed}
         <div id="dropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
       </div>
       <input type="file" id="fileInput" style="display:none" accept=".csv">
+      <div id="yoyDropZone" style="width:150px;height:150px;box-sizing:border-box;padding:0 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--r2);border-radius:14px;background:var(--surface);text-align:center;cursor:pointer">
+        <div style="font-size:26px;color:var(--r2)">&#8681;</div>
+        <h3 style="margin:6px 0 2px;font-size:13px">Drop Volume Compare CSV (optional)</h3>
+        <div id="yoyDropState" style="font-size:11px;color:var(--muted)">No file loaded</div>
+      </div>
+      <input type="file" id="yoyFileInput" style="display:none" accept=".csv">
     </div>
     <div id="inferStatus" class="sub" style="margin:6px 0 0"></div>
   </div>
@@ -146,6 +172,9 @@ select:disabled{opacity:.4;cursor:not-allowed}
       <div class="ctl"><label>Price</label><input type="number" id="ebPrice"></div>
     </div>
     <div class="row" id="ebDayRow"><div class="dayBoxes" id="ebDayBoxes"></div></div>
+    <div class="row">
+      <button id="ebRerunInferBtn" class="btnPrimary">Re-run Inference from Historical Data</button>
+    </div>
   </div>
   <div id="rateCardList"></div>
   <button id="addCardBtn" class="btnPrimary">+ Add Rate Card</button>
@@ -154,10 +183,10 @@ select:disabled{opacity:.4;cursor:not-allowed}
   <div style="display:flex;justify-content:space-between;align-items:baseline">
     <h2>Summary</h2>
     <label class="toggle" style="cursor:pointer"><input type="checkbox" id="includeFullValidations" checked> Include Full Validations</label>
+    <label class="toggle" style="cursor:pointer;display:none" id="includeEarlyBirdLabel"><input type="checkbox" id="includeEarlyBird" checked> Include Early Bird</label>
   </div>
   <p class="sub">Actual (AI-priced) charges vs. what the static rate table would have charged.</p>
   <div id="totalsSummary"></div>
-  <div id="secondaryTotals"></div>
   <div id="narrative"></div>
   <div id="rateReport"></div>
 </div>
@@ -167,12 +196,93 @@ select:disabled{opacity:.4;cursor:not-allowed}
   <div id="validationPoolReport"></div>
   <div id="excludedSummary"></div>
 </div>
+<div id="yoyPage" class="page">
+  <h2>Volume Compare</h2>
+  <p class="sub">Volume and average ticket price by rate-card band and day of week. AI Pricing = the visit CSV; Comparison = the Volume Compare CSV, bucketed into the same bands. Both cover the same number of days, starting on the same weekday, as close to the same date a year earlier as the file allows.</p>
+  <div id="yoyReport"></div>
+</div>
+
+<div id="pdfModal"><div class="box">
+  <h3 style="margin:0 0 12px">Print / PDF page size <span style="font-weight:400;color:var(--muted);font-size:12px">&mdash; fit to page width</span></h3>
+  <div style="display:flex;gap:16px;margin-bottom:12px">
+    <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+      <button type="button" class="btn ghost" data-size="letter" data-base="Letter 8.5&times;11">Letter 8.5&times;11</button>
+      <button type="button" class="btn ghost" data-size="legal" data-base="Legal 8.5&times;14">Legal 8.5&times;14</button>
+      <button type="button" class="btn ghost" data-size="tabloid" data-base="Tabloid 11&times;17">Tabloid 11&times;17</button>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+      <button type="button" class="btn" data-orient="landscape">Landscape</button>
+      <button type="button" class="btn ghost" data-orient="portrait">Portrait</button>
+    </div>
+  </div>
+  <button type="button" class="btn ghost" style="width:100%" data-size="cancel">Cancel</button>
+</div></div>
+<div id="helpOverlay">
+  <div id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="helpHead"><h2 id="helpTitle">How to Use Rate Compare</h2><button type="button" id="helpCloseBtn" class="btnGhost">Close &#10005;</button></div>
+    <p class="sub">Compares what customers were actually charged (AI pricing) against what a static rate table would have charged for the same visits.</p>
+
+    <h3>1. Where to get the data</h3>
+    <ol>
+      <li>Open the <a href="https://data.metropolis.io/#/views/VisitDetails/VisitDetail" target="_blank" rel="noopener">Visit Details dashboard</a>.</li>
+      <li>Filter to the site and date range you want to analyze.</li>
+      <li>Download the data as a <b>CSV</b> and drop that file into this tool, unedited. Pull a separate export for each file you need (see below).</li>
+    </ol>
+
+    <h3>2. Steps</h3>
+    <ol>
+      <li><b>Setup tab:</b> drop the <b>visit CSV</b> (the period you want to analyze, AI-priced). Comparison runs automatically.</li>
+      <li>Optionally drop a <b>historical visit CSV</b>. The tool infers the static rate table (rate cards, duration bands, prices) from it. Or build/adjust rate cards by hand and use <i>+ Add Rate Card</i>.</li>
+      <li>Check the rate coverage grid: green = one rate card covers that hour, red = two or more conflict, blank = no rate (a gap, often intentional). Visits in a gap are excluded.</li>
+      <li>Review <b>Summary</b> (totals and variance) and <b>Full Data</b> (per rate card, band and day of week).</li>
+    </ol>
+
+    <h3>3. Compare logic</h3>
+    <ul>
+      <li>For each visit, the tool finds the rate card matching the <b>entry day and time</b>, then the duration band the stay length falls in. That band's price is the <b>static price</b>.</li>
+      <li>The visit's <b>actual price</b> is what was really charged. Variance = Actual &minus; Static, shown as $ and as a percent of static.</li>
+      <li>Totals are split into the <b>GPV Pool</b> (what the customer paid) and the <b>Validation Pool</b> (amounts covered by validations). Use <i>Include Full Validations</i> on Summary to add or remove the Validation Pool.</li>
+      <li><b>Only included in the comparison:</b> pay-as-you-go <i>Transient (No Coverage)</i> and <i>Validation (Fully Covered)</i> visits.</li>
+      <li><b>Excluded</b> (listed under Excluded on Full Data): special event rates, stays longer than the reconciliation cutoff (default 24 hours), subscriptions, reservations, partial validations, visits with missing or bad timestamps, visits that match no rate card, and (when scan-to-pay applies) off-pattern durations.</li>
+      <li><b>Scan to pay:</b> Auto-detect checks whether durations fall on the scan-to-pay time grid. If so, off-grid visits are excluded. Override with On or Off if the detection is wrong.</li>
+    </ul>
+
+    <h3>4. When to use Early Bird</h3>
+    <ul>
+      <li>Turn on <i>Add Early Bird</i> (Setup) only if the site actually has an early bird flat rate.</li>
+      <li>Set the <b>entry window</b> (start and end time), the <b>days</b> it applies, the <b>exit condition</b> (Exit Before or Exit After a time) and the flat <b>price</b>.</li>
+      <li>A visit that qualifies is priced at the flat Early Bird price and <b>overrides</b> the normal rate card bands. It never gets both.</li>
+      <li>If you also drop a historical CSV, <i>Re-run Inference from Historical Data</i> can fill in the Early Bird price from past visits.</li>
+      <li>On Summary, <i>Include Early Bird</i> adds or removes Early Bird visits and revenue from the totals, so you can see results with and without it.</li>
+      <li>Leave it off for sites with no early bird. Those visits then just fall into the regular rate cards.</li>
+    </ul>
+
+    <h3>5. When to use Volume Compare</h3>
+    <ul>
+      <li>Drop a <b>Volume Compare CSV</b> (usually the same site, a year earlier, any length) to compare against the AI Pricing visit file. Export it from the same dashboard.</li>
+      <li>Optional. The <b>Volume Compare</b> tab stays disabled until that file is loaded, and it also needs the current visit CSV.</li>
+      <li><b>Matching days:</b> both sides use the same number of days, starting on the same weekday (4 Mondays vs 4 Mondays; 3 vs 3 if the AI file is shorter). The comparison start is the same-weekday date closest to the same calendar date one year earlier. If the comparison file is longer, only the best-matching slice is used. The tab shows the exact dates compared.</li>
+      <li><b>What it shows:</b> for each rate card, by band and day of week, the <b>Volume</b> (visits) and <b>Average Ticket Price</b>, plus the change as a number and a percent. Headline bubbles roll this up across all rate cards.</li>
+      <li>Both sides are bucketed into the <b>same bands</b> from the current rate table, with the same exclusions and Early Bird setting.</li>
+    </ul>
+
+    <div class="helpNote">Tip: Volume Compare trims to equal, weekday-aligned windows automatically, but holidays and events inside the windows can still skew volume.</div>
+  </div>
+</div>
 
 <!-- === Shell UI wiring (nav tabs, night toggle) === -->
 <script>
 document.getElementById('nightToggle').addEventListener('click', function(){
   document.body.classList.toggle('night');
 });
+(function(){
+  var overlay = document.getElementById('helpOverlay');
+  function setHelp(open) { overlay.classList.toggle('open', open); }
+  document.getElementById('helpBtn').addEventListener('click', function(){ setHelp(true); });
+  document.getElementById('helpCloseBtn').addEventListener('click', function(){ setHelp(false); });
+  overlay.addEventListener('click', function(e){ if (e.target === overlay) setHelp(false); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') setHelp(false); });
+})();
 function switchToTab(tabName) {
   document.querySelectorAll('#tabNav button').forEach(function(b){ b.classList.toggle('active', b.dataset.tab === tabName); });
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
@@ -207,6 +317,32 @@ RateEngine.parseVisitTimestamp = function(dateStr, timeStr) {
 
 RateEngine.computeDurationMinutes = function(entryDate, exitDate) {
   return Math.round((exitDate.getTime() - entryDate.getTime()) / 60000);
+};
+
+// Scan-to-pay lots: the guest picks how long to buy, so every real visit's
+// duration lands on a 15-minute step (the paid block is the "duration", and
+// there is no grace). Anything off that grid is a one-off (test, special case,
+// mistake) and is bucketed separately instead of distorting rates.
+RateEngine.SCAN_TO_PAY_STEP = 15;
+RateEngine.isOffPattern = function(durationMin) {
+  return durationMin % RateEngine.SCAN_TO_PAY_STEP !== 0;
+};
+RateEngine.detectScanToPay = function(rows) {
+  var total = 0, onGrid = 0;
+  (rows || []).forEach(function(row){
+    var entry, exit;
+    try {
+      entry = RateEngine.parseVisitTimestamp(row['Visit Start Date'], row['Visit Start At']);
+      exit = RateEngine.parseVisitTimestamp(row['Visit Exit  Event Date'], row['Visit Exit  Event At']);
+    } catch (e) { return; }
+    var d = RateEngine.computeDurationMinutes(entry, exit);
+    if (d <= 0 || RateEngine.parseMoney(row['Price Amt']) <= 0) return;
+    total++;
+    if (!RateEngine.isOffPattern(d)) onGrid++;
+  });
+  // By chance only ~1 in 15 durations hits the grid, so 90%+ is unambiguous.
+  var share = total ? onGrid / total : 0;
+  return { isScanToPay: total >= 50 && share >= 0.9, share: share, total: total };
 };
 
 RateEngine.timeStringToMinutes = function(hhmm) {
@@ -318,7 +454,7 @@ RateEngine.checkEarlyBird = function(earlyBird, entryDate, exitDate) {
   return earlyBird.price;
 };
 
-RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
+RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours, scanToPay) {
   // Some real exports have rows where the exit gate/camera event was never
   // recorded (e.g. Visit Notes: "exit missing") — a blank/unparseable
   // timestamp anywhere shouldn't crash the whole batch, it should just
@@ -336,6 +472,7 @@ RateEngine.processVisit = function(row, rateCards, earlyBird, cutoffHours) {
 
   if (isSpecialEvent) return { excluded: 'special_event', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
   if (durationMin > cutoffHours * 60) return { excluded: 'over_cutoff', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
+  if (scanToPay && RateEngine.isOffPattern(durationMin)) return { excluded: 'off_pattern', actualPrice: actualPrice, entryDate: entryDate, exitDate: exitDate };
 
   // Only genuine pay-as-you-go transient visits and fully-paid-then-covered
   // validations ever priced against the static rate table in the first
@@ -409,6 +546,7 @@ RateEngine.aggregateByBracket = function(processedVisits) {
   var excluded = {
     special_event: { count: 0, actualTotal: 0 },
     over_cutoff: { count: 0, actualTotal: 0 },
+    off_pattern: { count: 0, actualTotal: 0 },
     no_matching_rate_card: { count: 0, actualTotal: 0 },
     invalid_timestamp: { count: 0, actualTotal: 0 },
     unsupported_coverage_type: { count: 0, actualTotal: 0 }
@@ -485,7 +623,48 @@ RateEngine.aggregateByBracket = function(processedVisits) {
   return { brackets: bracketList, totals: totals, excluded: excluded };
 };
 
-RateEngine.buildRateReport = function(processedVisits, rateCards, earlyBird, opts) {
+// Day number (days since epoch) for a Date's local calendar day; DST-safe.
+RateEngine.dayNum = function(d) {
+  return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+};
+RateEngine.dayNumToDate = function(n) {
+  var d = new Date(n * 86400000);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+};
+
+// Pick equal-length, weekday-aligned windows for Volume Compare. curStart/curEnd
+// and priorStart/priorEnd are the first/last day numbers of each dataset. The
+// current window is the whole current file (trimmed only if the comparison file
+// is shorter); the comparison window starts on the same weekday, as close as
+// possible to the same calendar date one year earlier, and lies inside the file.
+RateEngine.pickCompareWindows = function(curStart, curEnd, priorStart, priorEnd) {
+  var n = curEnd - curStart + 1;
+  var priorSpan = priorEnd - priorStart + 1;
+  if (priorSpan < n) n = priorSpan >= 7 ? Math.floor(priorSpan / 7) * 7 : priorSpan;
+  function mod7(x) { return ((x % 7) + 7) % 7; }
+  var cd = RateEngine.dayNumToDate(curStart);
+  var target = RateEngine.dayNum(new Date(cd.getFullYear() - 1, cd.getMonth(), cd.getDate()));
+  var off = mod7(curStart - target);          // days forward to a matching weekday
+  var ps = off <= 3 ? target + off : target + off - 7;
+  var lo = priorStart, hi = priorEnd - n + 1;
+  if (ps < lo) ps += Math.ceil((lo - ps) / 7) * 7;
+  if (ps > hi) ps -= Math.ceil((ps - hi) / 7) * 7;
+  if (ps < lo || ps > hi) ps = lo;            // file too short to keep weekdays aligned
+  return { days: n, curStart: curStart, curEnd: curStart + n - 1, priorStart: ps, priorEnd: ps + n - 1 };
+};
+
+RateEngine.visitDayRange = function(processedVisits) {
+  var lo = null, hi = null;
+  processedVisits.forEach(function(v){
+    if (!v.entryDate) return;
+    var n = RateEngine.dayNum(v.entryDate);
+    if (lo === null || n < lo) lo = n;
+    if (hi === null || n > hi) hi = n;
+  });
+  return lo === null ? null : { start: lo, end: hi };
+};
+
+RateEngine.buildRateReport =function(processedVisits, rateCards, earlyBird, opts) {
   var DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun, matches Date.getDay() (0=Sun..6=Sat) — duplicated here
   // rather than shared with the UI layer's DAY_ORDER, since RateEngine stays
   // pure/DOM-free and must not depend on UI-script globals.
@@ -541,7 +720,7 @@ RateEngine.buildRateReport = function(processedVisits, rateCards, earlyBird, opt
 
   var sections = [];
 
-  if (earlyBird && earlyBird.enabled) {
+  if (earlyBird && earlyBird.enabled && opts.includeEarlyBird !== false) {
     var ebVisits = processedVisits.filter(function(v){ return !v.excluded && v.bracketName === 'Early Bird'; });
     var ebRow = [{ rate: earlyBird.price, upToMin: null }];
     sections.push(buildSection('Early Bird', earlyBird.entryStartMin, earlyBird.entryEndMin, earlyBird.days, ebRow, ebVisits));
@@ -745,6 +924,104 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
     return agree / common.length;
   }
 
+  var s2p = !!opts.scanToPay;
+  var offPatternCount = 0;
+  var s2pByDay = {};
+
+  function paidOnly(prices) { return prices.filter(function(p){ return p > 0; }); }
+
+  // Scan-to-pay ladder for an existing card: the paid block IS the duration,
+  // so bands are keyed on exact purchased durations, start at 0, and have no
+  // grace. Each band's upToMin is the NEXT band's first purchased duration
+  // (selectBand's upper bound is exclusive, so that duration lands in the
+  // next band); a lone band is labelled with its own purchased duration.
+  function consolidateS2P(visits) {
+    var byDur = {};
+    visits.forEach(function(v){ (byDur[v.durationMin] = byDur[v.durationMin] || []).push(v.price); });
+    var durs = Object.keys(byDur).map(Number).filter(function(d){ return paidOnly(byDur[d]).length >= minBracketSupport; })
+      .sort(function(a, b){ return a - b; });
+    if (!durs.length) return [];
+    var groups = [];
+    durs.forEach(function(d){
+      var p = mode(paidOnly(byDur[d]));
+      var last = groups[groups.length - 1];
+      if (last && last.price === p) last.lastDur = d;
+      else groups.push({ price: p, firstDur: d, lastDur: d });
+    });
+    return groups.map(function(g, i){
+      var band = { rate: g.price, upToMin: groups.length === 1 ? g.lastDur : (i < groups.length - 1 ? groups[i + 1].firstDur : 1440) };
+      if (i === 0) band.startingMin = 0;
+      return band;
+    });
+  }
+
+  // Scan-to-pay price is set by WHEN the guest arrives (day + time), not by
+  // how long they stay, so windows are found from arrival hour: modal paid
+  // price per hour, thin hours borrow from their neighbour, equal-price runs
+  // merge into a window, and slivers under 2 hours fold into the adjacent one.
+  function s2pSegments(visits) {
+    var byHour = {};
+    visits.forEach(function(v){ var h = Math.floor(v.minute / 60); (byHour[h] = byHour[h] || []).push(v.price); });
+    var hp = [], h;
+    for (h = 0; h < 24; h++) {
+      var paid = paidOnly(byHour[h] || []);
+      hp[h] = paid.length >= minBracketSupport ? mode(paid) : null;
+    }
+    var first = hp.findIndex(function(p){ return p !== null; });
+    if (first < 0) return null;
+    for (h = 0; h < first; h++) hp[h] = hp[first];
+    for (h = first + 1; h < 24; h++) if (hp[h] === null) hp[h] = hp[h - 1];
+    var segs = [];
+    for (h = 0; h < 24; h++) {
+      var last = segs[segs.length - 1];
+      if (last && last.price === hp[h]) last.endHour = h + 1;
+      else segs.push({ startHour: h, endHour: h + 1, price: hp[h] });
+    }
+    var short;
+    while (segs.length > 1 && (short = segs.findIndex(function(s){ return s.endHour - s.startHour < 2; })) > -1) {
+      var into = short > 0 ? short - 1 : short + 1;
+      segs[into].startHour = Math.min(segs[into].startHour, segs[short].startHour);
+      segs[into].endHour = Math.max(segs[into].endHour, segs[short].endHour);
+      segs.splice(short, 1);
+      for (var i = segs.length - 1; i > 0; i--) {
+        if (segs[i].price === segs[i - 1].price) { segs[i - 1].endHour = segs[i].endHour; segs.splice(i, 1); }
+      }
+    }
+    return segs;
+  }
+
+  function hourLabel(h) { return (h % 12 || 12) + (h % 24 < 12 ? ' AM' : ' PM'); }
+
+  function inferS2PCards() {
+    var groups = [];
+    MON_FIRST.forEach(function(d){
+      var visits = s2pByDay[d];
+      if (!visits || !visits.length) return;
+      var segs = s2pSegments(visits);
+      if (!segs) { insufficientDataCount += visits.length; return; }
+      var key = JSON.stringify(segs.map(function(s){ return [s.startHour, s.endHour, s.price]; }));
+      var g = groups.find(function(x){ return x.key === key; });
+      if (g) { g.days.push(d); g.visits = g.visits.concat(visits); }
+      else groups.push({ key: key, days: [d], segs: segs, visits: visits.slice() });
+    });
+    groups.forEach(function(g){
+      var daysMask = [false, false, false, false, false, false, false];
+      g.days.forEach(function(d){ daysMask[d] = true; });
+      g.segs.forEach(function(seg){
+        var inSeg = g.visits.filter(function(v){ return v.minute >= seg.startHour * 60 && v.minute < seg.endHour * 60; });
+        var atPrice = inSeg.filter(function(v){ return v.price === seg.price; });
+        var dur = mode((atPrice.length ? atPrice : inSeg).map(function(v){ return v.durationMin; }));
+        var label = dayLabel(daysMask, null) + (g.segs.length > 1 ? ' ' + hourLabel(seg.startHour) + '–' + hourLabel(seg.endHour) : '');
+        newCards.push({
+          name: label, days: daysMask,
+          startMin: seg.startHour * 60,
+          endMin: seg.endHour === 24 ? 1439 : seg.endHour * 60,
+          bands: [{ rate: seg.price, startingMin: 0, upToMin: dur }]
+        });
+      });
+    });
+  }
+
   var SIMILARITY_THRESHOLD = opts.mergeSimilarityThreshold === undefined ? 0.75 : opts.mergeSimilarityThreshold;
 
   function dayLabel(daysMask, windowName) {
@@ -783,10 +1060,21 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
     // flat price, not a duration band).
     if (durationMin > 1440) return;
 
+    // Scan-to-pay one-offs (off the 15-minute grid) are bucketed, not inferred from.
+    if (s2p && RateEngine.isOffPattern(durationMin)) { offPatternCount++; return; }
+
     var card = RateEngine.findMatchingRateCard(rateCards, entryDate);
     if (card) {
       var name = card.name || 'Unnamed';
       (byCard[name] = byCard[name] || []).push({ durationMin: durationMin, price: price });
+      return;
+    }
+
+    if (s2p) {
+      var dowS = entryDate.getDay();
+      (s2pByDay[dowS] = s2pByDay[dowS] || []).push({
+        durationMin: durationMin, price: price, minute: entryDate.getHours() * 60 + entryDate.getMinutes()
+      });
       return;
     }
 
@@ -800,13 +1088,15 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
 
   var cardBands = {}, perCardCounts = {};
   Object.keys(byCard).forEach(function(name){
-    cardBands[name] = consolidate(byCard[name]);
+    cardBands[name] = (s2p ? consolidateS2P : consolidate)(byCard[name]);
     perCardCounts[name] = byCard[name].length;
   });
 
-  var newCards = [], insufficientDataCount = 0;
   var windowNames = Object.keys(windows);
   var multiWindow = windowNames.length > 1;
+
+  var newCards = [], insufficientDataCount = 0;
+  if (s2p) inferS2PCards();
 
   windowNames.forEach(function(winName){
     var win = windows[winName];
@@ -865,7 +1155,8 @@ RateEngine.inferRateBands = function(historicalRows, rateCards, earlyBird, disco
     newCards: newCards,
     earlyBirdPrice: earlyBirdModalPrice,
     earlyBirdCount: ebPrices.length,
-    insufficientDataCount: insufficientDataCount
+    insufficientDataCount: insufficientDataCount,
+    offPatternCount: offPatternCount
   };
 };
 </script>
@@ -1262,6 +1553,15 @@ window.__engineTestCases.push(function(t){
   t.assertEqual(reportWithEb.sections[0].rows[0].startingMin, null, 'buildRateReport: Early Bird\'s row has no Starting (min) either');
   t.assertEqual(reportWithEb.sections[0].rows[0].countByDay[1], 1, 'buildRateReport: Early Bird visit counted on its own day');
 
+  // opts.includeEarlyBird: false drops the Early Bird section (and its
+  // revenue) even though earlyBird.enabled is still true — this is what
+  // backs the Summary tab's "Include Early Bird" toggle.
+  var reportEbOmitted = RateEngine.buildRateReport([ebVisit].concat(visits), [dayCard], earlyBird, { includeEarlyBird: false });
+  var reportWithoutEbVisitAtAll = RateEngine.buildRateReport(visits, [dayCard], earlyBird);
+  t.assertEqual(reportEbOmitted.sections.length, 1, 'buildRateReport: includeEarlyBird:false omits the Early Bird section entirely');
+  t.assertEqual(reportEbOmitted.sections[0].name, 'Day', 'buildRateReport: includeEarlyBird:false leaves the other sections untouched');
+  t.assertEqual(reportEbOmitted.summary.total.actualTotal, reportWithoutEbVisitAtAll.summary.total.actualTotal, 'buildRateReport: includeEarlyBird:false drops the Early Bird visit\'s revenue from the grand total, matching a report that never saw it');
+
   // Excluded visits (special_event/over_cutoff/no_matching_rate_card) never reach any section.
   var excludedVisit = { excluded: 'over_cutoff', actualPrice: 50 };
   var reportIgnoresExcluded = RateEngine.buildRateReport([excludedVisit].concat(visits), [dayCard], { enabled: false });
@@ -1604,12 +1904,16 @@ var state = {
   rateCards: [],
   earlyBird: { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 },
   cutoffHours: 24,
+  scanToPay: 'auto',
   visits: [],
   historicalRows: [],
+  yoyRows: [],
+  yoyProcessedVisits: null,
   discoverSetup: { allDay: true, dayStartMin: 360, eveningStartMin: 1080 },
   processedVisits: null,
   compareResult: null,
-  includeFullValidations: true
+  includeFullValidations: true,
+  includeEarlyBird: true
 };
 var nextCardId = 1;
 var DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun display order, values index into card.days (0=Sun..6=Sat, matches Date.getDay())
@@ -2078,6 +2382,7 @@ function renderEarlyBird() {
     });
     document.getElementById(prefix + 'Card').style.display = state.earlyBird.enabled ? 'block' : 'none';
   });
+  document.getElementById('includeEarlyBirdLabel').style.display = state.earlyBird.enabled ? 'flex' : 'none';
 }
 function wireEarlyBirdControls(prefix) {
   document.getElementById(prefix + 'Enabled').addEventListener('change', function(e){
@@ -2098,8 +2403,10 @@ function wireEarlyBirdControls(prefix) {
     runComparison();
   });
   document.getElementById(prefix + 'Price').addEventListener('input', function(e){
+    // Deliberately skip renderEarlyBird() here: it would overwrite this very
+    // input's value from state mid-keystroke (e.g. Number("17.") === 17),
+    // stripping the decimal point the user just typed.
     state.earlyBird.price = Number(e.target.value);
-    renderEarlyBird();
     runComparison();
   });
   document.getElementById(prefix + 'DayBoxes').addEventListener('change', function(e){
@@ -2160,6 +2467,15 @@ window.__engineTestCases.push(function(t){
   priceInput.dispatchEvent(new Event('input', {bubbles:true}));
   t.assertEqual(state.earlyBird.price, 5, 'EB UI: price input updates state');
 
+  // Regression: typing "17.01" keystroke-by-keystroke must not get the
+  // decimal point clobbered by a state-driven re-render mid-type.
+  ['1', '17', '17.', '17.0', '17.01'].forEach(function(partial){
+    priceInput.value = partial;
+    priceInput.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+  t.assertEqual(priceInput.value, '17.01', 'EB UI: price input keeps the decimal point while typing cents');
+  t.assertEqual(state.earlyBird.price, 17.01, 'EB UI: price input state captures cents');
+
   var wedCheckbox = document.querySelector('#ebDayBoxes input[data-eb-day="3"]');
   wedCheckbox.checked = true;
   wedCheckbox.dispatchEvent(new Event('change', {bubbles:true}));
@@ -2181,11 +2497,30 @@ window.__engineTestCases.push(function(t){
 </script>
 
 <script>
-document.getElementById('cutoffHours').addEventListener('input', function(e){
-  // An emptied field parses as 0, which would silently exclude every visit
-  // as over-cutoff — ignore it and keep the last valid value instead.
-  if (e.target.value !== '') { state.cutoffHours = Number(e.target.value); runComparison(); }
-});
+// Resolves the Scan-to-pay setting (Auto/On/Off) for a given set of visit rows.
+function resolveScanToPay(rows) {
+  var det = RateEngine.detectScanToPay(rows);
+  var on = state.scanToPay === 'on' || (state.scanToPay === 'auto' && det.isScanToPay);
+  var status = document.getElementById('scanToPayStatus');
+  if (status) {
+    status.textContent = det.total ? (on ? 'Scan-to-pay active' : 'Not scan-to-pay') + ' (' + (det.share * 100).toFixed(1) + '% of durations on 15-min steps)' : '';
+  }
+  return on;
+}
+
+function applyCutoff() {
+  var input = document.getElementById('cutoffHours');
+  state.scanToPay = document.getElementById('scanToPayMode').value;
+  // An emptied/invalid field would silently exclude every visit as
+  // over-cutoff — ignore it and restore the last valid value instead.
+  var n = Number(input.value);
+  if (input.value === '' || !isFinite(n) || n <= 0) { input.value = state.cutoffHours; }
+  else state.cutoffHours = n;
+  runComparison();
+}
+document.getElementById('cutoffRefreshBtn').addEventListener('click', applyCutoff);
+document.getElementById('scanToPayMode').addEventListener('change', function(e){ state.scanToPay = e.target.value; runComparison(); });
+document.getElementById('cutoffHours').addEventListener('keydown', function(e){ if (e.key === 'Enter') applyCutoff(); });
 
 var dropZone = document.getElementById('dropZone');
 var fileInput = document.getElementById('fileInput');
@@ -2265,12 +2600,14 @@ document.getElementById('discoverQuickSetupCard').addEventListener('input', func
 });
 renderDiscoverSetup();
 
-// Runs automatically whenever a historical file is dropped in — no button,
-// no separate confirmation step; dropping the file IS the action.
+// Runs automatically whenever a historical file is dropped in — dropping the
+// file IS the action. Also wired to the Early Bird card's "Re-run Inference"
+// button, so users can re-derive bands after configuring Early Bird (fixing
+// rate cards that got contaminated by EB visits during the initial drop).
 function runInfer(){
   var statusEl = document.getElementById('inferStatus');
   if (!state.historicalRows.length) { statusEl.textContent = 'Drop a historical visit CSV first.'; return; }
-  var result = RateEngine.inferRateBands(state.historicalRows, state.rateCards, state.earlyBird, state.discoverSetup);
+  var result = RateEngine.inferRateBands(state.historicalRows, state.rateCards, state.earlyBird, state.discoverSetup, { scanToPay: resolveScanToPay(state.historicalRows) });
 
   var cardsFilled = 0;
   state.rateCards.forEach(function(card){
@@ -2304,20 +2641,172 @@ function runInfer(){
   if (result.newCards.length) parts.push('created ' + result.newCards.length + ' new rate card' + (result.newCards.length === 1 ? '' : 's'));
   if (result.earlyBirdCount) parts.push('Early Bird price ($' + result.earlyBirdPrice.toFixed(2) + ' from ' + result.earlyBirdCount + ' visits)');
   var summary = parts.length ? parts.join(', ') + '.' : 'No visits matched any window.';
+  if (result.offPatternCount) summary += ' ' + result.offPatternCount + ' scan-to-pay one-off visits (duration not on a 15-min step) were ignored.';
   if (result.insufficientDataCount) summary += ' ' + result.insufficientDataCount + ' visits had too little data to confidently infer a rate.';
   statusEl.textContent = summary;
 }
+document.getElementById('ebRerunInferBtn').addEventListener('click', runInfer);
 </script>
 
 <script>
 function runComparison() {
   if (!state.visits.length) return;
+  var s2p = resolveScanToPay(state.visits);
   var processed = state.visits.map(function(row){
-    return RateEngine.processVisit(row, state.rateCards, state.earlyBird, state.cutoffHours);
+    return RateEngine.processVisit(row, state.rateCards, state.earlyBird, state.cutoffHours, s2p);
   });
   state.processedVisits = processed;
   state.compareResult = RateEngine.aggregateByBracket(processed);
   renderCompare();
+  runYoY();
+}
+
+// ---- Year-over-Year (optional third file) ----
+var yoyDropZone = document.getElementById('yoyDropZone');
+var yoyFileInput = document.getElementById('yoyFileInput');
+yoyDropZone.addEventListener('click', function(){ yoyFileInput.click(); });
+yoyDropZone.addEventListener('dragover', function(e){ e.preventDefault(); yoyDropZone.style.background = 'var(--r1)'; });
+yoyDropZone.addEventListener('dragleave', function(){ yoyDropZone.style.background = 'var(--surface)'; });
+yoyDropZone.addEventListener('drop', function(e){
+  e.preventDefault();
+  yoyDropZone.style.background = 'var(--surface)';
+  handleYoYFile(e.dataTransfer.files[0]);
+});
+yoyFileInput.addEventListener('change', function(e){
+  handleYoYFile(e.target.files[0]);
+  e.target.value = '';
+});
+function applyYoYFileBuffer(arrayBuffer, filename) {
+  state.yoyRows = RateEngine.parseVisitFile(arrayBuffer);
+  document.getElementById('yoyDropState').textContent = filename + ' (' + state.yoyRows.length + ' visits)';
+  runYoY();
+}
+function handleYoYFile(file) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){ applyYoYFileBuffer(e.target.result, file.name); };
+  reader.readAsArrayBuffer(file);
+}
+
+// Prior-year rows go through the same pipeline (same rate cards, Early Bird,
+// cutoff) as the current file, so both years are bucketed identically.
+function runYoY() {
+  var hasYoY = state.yoyRows.length > 0;
+  var btn = document.getElementById('yoyTabBtn');
+  btn.disabled = !hasYoY;
+  if (!hasYoY) {
+    state.yoyProcessedVisits = null;
+    if (document.getElementById('yoyPage').classList.contains('active')) switchToTab('setup');
+    document.getElementById('yoyReport').innerHTML = '';
+    return;
+  }
+  var det = RateEngine.detectScanToPay(state.yoyRows);
+  var s2p = state.scanToPay === 'on' || (state.scanToPay === 'auto' && det.isScanToPay);
+  state.yoyProcessedVisits = state.yoyRows.map(function(row){
+    return RateEngine.processVisit(row, state.rateCards, state.earlyBird, state.cutoffHours, s2p);
+  });
+  renderYoY();
+}
+
+function renderYoY() {
+  var el = document.getElementById('yoyReport');
+  if (!state.yoyProcessedVisits) { el.innerHTML = ''; return; }
+  if (!state.processedVisits) {
+    el.innerHTML = '<div class="card">Drop the current visit CSV to run Volume Compare.</div>';
+    return;
+  }
+  var opts = { qualifies: function(v){ return true; }, includeEarlyBird: state.includeEarlyBird };
+  var curRange = RateEngine.visitDayRange(state.processedVisits);
+  var priorRange = RateEngine.visitDayRange(state.yoyProcessedVisits);
+  if (!curRange || !priorRange) {
+    el.innerHTML = '<div class="card">Could not read visit dates from one of the files.</div>';
+    return;
+  }
+  var win = RateEngine.pickCompareWindows(curRange.start, curRange.end, priorRange.start, priorRange.end);
+  function inWindow(visits, s, e) {
+    return visits.filter(function(v){
+      if (!v.entryDate) return false;
+      var n = RateEngine.dayNum(v.entryDate);
+      return n >= s && n <= e;
+    });
+  }
+  var cy = RateEngine.buildRateReport(inWindow(state.processedVisits, win.curStart, win.curEnd), state.rateCards, state.earlyBird, opts);
+  var py = RateEngine.buildRateReport(inWindow(state.yoyProcessedVisits, win.priorStart, win.priorEnd), state.rateCards, state.earlyBird, opts);
+  function fmtDay(n) {
+    var d = RateEngine.dayNumToDate(n);
+    return DAY_LABELS[d.getDay()] + ' ' + (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
+  }
+
+  function signed(n, fmt) { return (n >= 0 ? '+' : '') + fmt(n); }
+  function pct(diff, base) { return base ? ' (' + fmtPercent(diff / base * 100) + ')' : ''; }
+  function avg(total, count) { return count > 0 ? total / count : null; }
+  function money(v) { return v === null ? '—' : fmtMoney(v); }
+  function avgVar(a, b) { return (a === null || b === null) ? '—' : signed(b - a, fmtMoney) + pct(b - a, a); }
+
+  function table(title, section, cySec, pySec, labels, cellFn) {
+    var html = '<div class="bracketMeta" style="margin-top:10px;font-weight:700">' + escapeHtml(title) + '</div>' +
+      '<table class="reportTable"><thead><tr><th>Band</th><th></th>' +
+      section.activeDays.map(function(d){ return '<th>' + DAY_LABELS[d] + '</th>'; }).join('') +
+      '<th>Total</th></tr></thead><tbody>';
+    var n = 0;
+    section.rows.forEach(function(row, i){
+      var c = cySec.rows[i], p = pySec.rows[i];
+      var band = formatBand(row.startingMin, row.upToMin);
+      [0, 1, 2].forEach(function(k){
+        html += '<tr class="' + (n++ % 2 === 0 ? 'even' : 'odd') + '"' + (k === 2 ? ' style="font-weight:700"' : '') + '>' +
+          '<td>' + (k === 0 ? band : '') + '</td><td>' + labels[k] + '</td>' +
+          section.activeDays.map(function(d){ return '<td>' + cellFn(k, c, p, d) + '</td>'; }).join('') +
+          '<td style="font-weight:700">' + cellFn(k, c, p, null) + '</td></tr>';
+      });
+    });
+    return html + '</tbody></table>';
+  }
+
+  function volCell(k, c, p, d) {
+    var cv = d === null ? c.totalCount : c.countByDay[d];
+    var pv = d === null ? p.totalCount : p.countByDay[d];
+    return k === 0 ? fmtNumber(cv) : k === 1 ? fmtNumber(pv) : signed(cv - pv, fmtNumber) + pct(cv - pv, pv);
+  }
+  // Rows are labeled Prior Year first for price (Normal), Current Year second
+  // (AI) — k: 0 = Normal (PY), 1 = AI (CY), 2 = variance.
+  function priceCell(k, c, p, d) {
+    var cc = d === null ? c.totalCount : c.countByDay[d];
+    var pc = d === null ? p.totalCount : p.countByDay[d];
+    var ca = d === null ? c.totalActual : c.actualByDay[d];
+    var pa = d === null ? p.totalActual : p.actualByDay[d];
+    var cAvg = avg(ca, cc), pAvg = avg(pa, pc);
+    return k === 0 ? money(pAvg) : k === 1 ? money(cAvg) : avgVar(pAvg, cAvg);
+  }
+
+  // Headline bubbles across all rate cards; the percent bubbles are the
+  // outlined ones, same treatment as the Summary tab's Percent bubble.
+  var cVol = 0, pVol = 0, cAct = 0, pAct = 0;
+  cy.sections.forEach(function(s){ s.rows.forEach(function(r){ cVol += r.totalCount; cAct += r.totalActual; }); });
+  py.sections.forEach(function(s){ s.rows.forEach(function(r){ pVol += r.totalCount; pAct += r.totalActual; }); });
+  var cAvgAll = avg(cAct, cVol), pAvgAll = avg(pAct, pVol);
+  function bubble(label, value, hl) {
+    return '<div class="card statCard' + (hl ? ' statHighlight' : '') + '"><div class="statLabel">' + label + '</div><div class="statValue">' + value + '</div></div>';
+  }
+  var html = '<div class="card" style="font-size:13px"><b>' + win.days + ' days compared, weekday-aligned.</b> AI Pricing: ' + fmtDay(win.curStart) + ' to ' + fmtDay(win.curEnd) +
+    '. Comparison: ' + fmtDay(win.priorStart) + ' to ' + fmtDay(win.priorEnd) + '.</div>' +
+    '<div class="statRow">' +
+    bubble('AI Period Visits', fmtNumber(cVol)) +
+    bubble('Comparison Visits', fmtNumber(pVol)) +
+    bubble('Volume Change', pVol ? fmtPercent((cVol - pVol) / pVol * 100) : '—', true) +
+    '</div><div class="statRow">' +
+    bubble('Avg Ticket (Comparison)', money(pAvgAll)) +
+    bubble('Avg Ticket (AI Pricing)', money(cAvgAll)) +
+    bubble('Avg Ticket Change', (cAvgAll === null || pAvgAll === null || !pAvgAll) ? '—' : fmtPercent((cAvgAll - pAvgAll) / pAvgAll * 100), true) +
+    '</div>';
+  cy.sections.forEach(function(section, si){
+    var cySec = cy.sections[si], pySec = py.sections[si];
+    html += '<div class="card"><div class="bracketName">' + escapeHtml(section.name) + '</div>' +
+      '<div class="bracketMeta">' + escapeHtml(formatTimeWindow(section.startMin, section.endMin)) + '</div>' +
+      table('Volume (visits)', section, cySec, pySec, ['AI Period', 'Comparison', 'Variance'], volCell) +
+      table('Average Ticket Price', section, cySec, pySec, ['Normal (Comparison)', 'AI Pricing', 'Variance'], priceCell) +
+      '</div>';
+  });
+  el.innerHTML = html || '<div class="card">No rate cards configured.</div>';
 }
 
 function fmtNumber(n) {
@@ -2346,7 +2835,7 @@ function formatBand(startingMin, upToMin) {
   return upToMin === null ? '—' : (startingMin + '-' + upToMin);
 }
 
-function renderReportTable(title, section, cellFn, totalCellFn) {
+function renderReportTable(title, section, cellFn, totalCellFn, rateFn, pctFn, totalPctFn) {
   var html = '<div class="bracketMeta" style="margin-top:10px;font-weight:700">' + escapeHtml(title) + '</div>';
   html += '<table class="reportTable"><thead><tr>' +
     '<th>Time Window</th><th>Band</th><th>Rate</th>' +
@@ -2357,10 +2846,16 @@ function renderReportTable(title, section, cellFn, totalCellFn) {
     html += '<tr class="' + (idx % 2 === 0 ? 'even' : 'odd') + '">' +
       '<td>' + escapeHtml(formatTimeWindow(section.startMin, section.endMin)) + '</td>' +
       '<td>' + formatBand(row.startingMin, row.upToMin) + '</td>' +
-      '<td>' + fmtMoney(row.rate) + '</td>' +
+      '<td>' + (rateFn ? rateFn(row) : fmtMoney(row.rate)) + '</td>' +
       section.activeDays.map(function(d){ return '<td>' + cellFn(row, d) + '</td>'; }).join('') +
       '<td style="font-weight:700">' + totalCellFn(row) + '</td>' +
       '</tr>';
+    // Optional second row carrying the % figures, aligned under the same columns.
+    if (pctFn) {
+      html += '<tr class="' + (idx % 2 === 0 ? 'even' : 'odd') + '"><td></td><td></td><td></td>' +
+        section.activeDays.map(function(d){ return '<td>' + pctFn(row, d) + '</td>'; }).join('') +
+        '<td style="font-weight:700">' + totalPctFn(row) + '</td></tr>';
+    }
   });
   html += '</tbody></table>';
   return html;
@@ -2426,8 +2921,15 @@ function appendSectionCards(report, el) {
       '<div class="bracketMeta">' + escapeHtml(formatTimeWindow(section.startMin, section.endMin)) + '</div>';
     html += renderReportTable('Count', section, function(row, d){ return fmtNumber(row.countByDay[d]); }, function(row){ return fmtNumber(row.totalCount); });
     html += renderReportTable('Traditional PARCs ($)', section, function(row, d){ return fmtMoney(row.staticByDay[d]); }, function(row){ return fmtMoney(row.totalStatic); });
-    html += renderReportTable('AI Pricing ($)', section, function(row, d){ return fmtMoney(row.actualByDay[d]); }, function(row){ return fmtMoney(row.totalActual); });
-    html += renderReportTable('Variance', section, function(row, d){ return formatVarianceCell(row.varianceByDay[d], row.upliftPctByDay[d]); }, function(row){ return formatVarianceCell(row.totalVariance, row.totalUpliftPct); });
+    html += renderReportTable('AI Pricing ($)', section, function(row, d){ return fmtMoney(row.actualByDay[d]); }, function(row){ return fmtMoney(row.totalActual); },
+      // Rate column here is the average ticket price actually charged for this window/band.
+      function(row){ return row.totalCount > 0 ? fmtMoney(row.totalActual / row.totalCount) : '—'; });
+    html += renderReportTable('Variance', section,
+      function(row, d){ return (row.varianceByDay[d] >= 0 ? '+' : '') + fmtMoney(row.varianceByDay[d]); },
+      function(row){ return (row.totalVariance >= 0 ? '+' : '') + fmtMoney(row.totalVariance); },
+      undefined,
+      function(row, d){ return row.upliftPctByDay[d] === null ? '—' : fmtPercent(row.upliftPctByDay[d]); },
+      function(row){ return row.totalUpliftPct === null ? '—' : fmtPercent(row.totalUpliftPct); });
     card.innerHTML = html;
     el.appendChild(card);
   });
@@ -2439,30 +2941,7 @@ function renderTotalsSummary(totals) {
     '<div class="card statCard"><div class="statLabel">Traditional Rate Revenue</div><div class="statValue">' + fmtMoney(totals.staticTotal) + '</div></div>' +
     '<div class="card statCard"><div class="statLabel">AI Revenue</div><div class="statValue">' + fmtMoney(totals.actualTotal) + '</div></div>' +
     '<div class="card statCard"><div class="statLabel">Variance</div><div class="statValue">' + fmtMoney(totals.delta) + '</div></div>' +
-    '<div class="card statCard"><div class="statLabel">Percent</div><div class="statValue">' + fmtPercent(totals.percentOfStatic) + '</div></div>' +
-    '</div>';
-}
-
-// Second row: straight from the AI data itself (Price Amt by coverage type),
-// independent of the GPV/Validation Pool split above. Fourth bubble is a
-// placeholder — intentionally blank for now.
-function renderSecondaryTotals() {
-  var el = document.getElementById('secondaryTotals');
-  if (!state.processedVisits) { el.innerHTML = ''; return; }
-
-  var transientTotal = 0, fullValidatedTotal = 0;
-  state.processedVisits.forEach(function(v){
-    if (v.excluded) return;
-    if (v.coverageType === 'Transient (No Coverage)') transientTotal += v.actualPrice;
-    else if (v.coverageType === 'Validation (Fully Covered)') fullValidatedTotal += v.actualPrice;
-  });
-
-  el.innerHTML =
-    '<div class="statRow">' +
-    '<div class="card statCard"><div class="statLabel">Total Transient</div><div class="statValue">' + fmtMoney(transientTotal) + '</div></div>' +
-    '<div class="card statCard"><div class="statLabel">Total Full Validated</div><div class="statValue">' + fmtMoney(fullValidatedTotal) + '</div></div>' +
-    '<div class="card statCard"><div class="statLabel">Transient + Full Validated</div><div class="statValue">' + fmtMoney(transientTotal + fullValidatedTotal) + '</div></div>' +
-    '<div class="card statCard"><div class="statLabel">Hold for later</div><div class="statValue">&mdash;</div></div>' +
+    '<div class="card statCard statHighlight"><div class="statLabel">Percent</div><div class="statValue">' + fmtPercent(totals.percentOfStatic) + '</div></div>' +
     '</div>';
 }
 
@@ -2477,17 +2956,53 @@ function renderNarrative(totals, gpvReport, validationReport) {
   var pctText = totals.percentOfStatic === null ? 'an undefined change since the traditional total was $0' : fmtPercent(totals.percentOfStatic);
   var html = '<div class="card"><p>Across the qualifying visits, AI pricing generated ' + fmtMoney(totals.actualTotal) +
     ', compared to ' + fmtMoney(totals.staticTotal) + ' the traditional static rate table would have charged — ' +
-    fmtMoney(Math.abs(totals.delta)) + ' ' + direction + ' (' + pctText + ').</p><ul>';
+    fmtMoney(Math.abs(totals.delta)) + ' ' + direction + ' (' + pctText + ').</p>';
 
-  gpvReport.summary.rows.forEach(function(r){
-    html += '<li>' + escapeHtml(r.name) + ': ' + fmtMoney(r.staticTotal) + ' traditional vs ' + fmtMoney(r.actualTotal) + ' AI (' +
-      (r.upliftPct === null ? 'no traditional baseline to compare' : fmtPercent(r.upliftPct) + ' uplift') + ')</li>';
+  // Re-bucket each rate card's per-day totals into day-type / daypart groups
+  // (a card spanning Mon-Sun contributes its Mon-Fri days to Weekday and its
+  // Sat/Sun days to Weekend). A card starting 5 PM or later is "Evening".
+  var groups = [
+    { key: 'wkDay', label: 'Weekday daytime (Mon–Fri)' },
+    { key: 'wkEve', label: 'Weekday evenings (Mon–Fri)' },
+    { key: 'weDay', label: 'Weekend daytime (Sat–Sun)' },
+    { key: 'weEve', label: 'Weekend evenings (Sat–Sun)' },
+    { key: 'eb', label: 'Early Bird' }
+  ];
+  var acc = {};
+  groups.forEach(function(g){ acc[g.key] = { label: g.label, staticTotal: 0, actualTotal: 0, count: 0 }; });
+  gpvReport.sections.forEach(function(section){
+    var isEB = section.name === 'Early Bird' && state.earlyBird && state.earlyBird.enabled;
+    var evening = section.startMin >= 1020;
+    section.activeDays.forEach(function(d){
+      var weekend = d === 0 || d === 6;
+      var key = isEB ? 'eb' : (weekend ? 'we' : 'wk') + (evening ? 'Eve' : 'Day');
+      section.rows.forEach(function(row){
+        acc[key].staticTotal += row.staticByDay[d];
+        acc[key].actualTotal += row.actualByDay[d];
+        acc[key].count += row.countByDay[d];
+      });
+    });
   });
+
+  var best = null;
+  groups.forEach(function(g){
+    var a = acc[g.key];
+    if (!a.count) return;
+    var diff = a.actualTotal - a.staticTotal;
+    var up = a.staticTotal !== 0 ? diff / a.staticTotal * 100 : null;
+    html += '<p style="margin:8px 0"><strong>' + g.label + ':</strong> ' + fmtNumber(a.count) + ' visits. AI pricing generated ' +
+      fmtMoney(a.actualTotal) + ' against ' + fmtMoney(a.staticTotal) + ' on the traditional table — ' +
+      fmtMoney(Math.abs(diff)) + (diff >= 0 ? ' more' : ' less') +
+      (up === null ? ' (no traditional baseline to compare).' : ' (' + fmtPercent(up) + ').');
+    if (up !== null && (!best || up > best.up)) best = { label: g.label, up: up };
+    html += '</p>';
+  });
+  if (best) html += '<p style="margin:8px 0">The strongest uplift came from ' + best.label.toLowerCase() + ' at ' + fmtPercent(best.up) + '.</p>';
   if (validationReport && validationReport.summary.total.count) {
-    html += '<li>Validation Pool (visits covered by a validation rather than paid directly): ' +
-      fmtMoney(validationReport.summary.total.staticTotal) + ' traditional vs ' + fmtMoney(validationReport.summary.total.actualTotal) + ' AI</li>';
+    html += '<p style="margin:8px 0"><strong>Validation Pool</strong> (visits covered by a validation rather than paid directly): ' +
+      fmtMoney(validationReport.summary.total.staticTotal) + ' traditional vs ' + fmtMoney(validationReport.summary.total.actualTotal) + ' AI.</p>';
   }
-  html += '</ul></div>';
+  html += '</div>';
   el.innerHTML = html;
 }
 
@@ -2509,7 +3024,9 @@ function renderRateReport() {
 
   // GPV Pool: only the grand-totals Summary card stays on the Summary tab;
   // the per-section detail tables live on Full Data instead.
-  var gpvReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird);
+  var gpvReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird, {
+    includeEarlyBird: state.includeEarlyBird
+  });
   appendSummaryCard(gpvReport, summaryEl);
   gpvDetailEl.insertAdjacentHTML('beforeend', '<h3>GPV Pool</h3>');
   appendSectionCards(gpvReport, gpvDetailEl);
@@ -2522,7 +3039,8 @@ function renderRateReport() {
     validationEl.insertAdjacentHTML('beforeend', '<h3>Validation Pool</h3>');
     validationReport = RateEngine.buildRateReport(state.processedVisits, state.rateCards, state.earlyBird, {
       qualifies: function(v){ return v.hasValidationAmt && v.validationType === 'full'; },
-      actualField: 'validationAmt'
+      actualField: 'validationAmt',
+      includeEarlyBird: state.includeEarlyBird
     });
     appendSummaryCard(validationReport, validationEl);
     appendSectionCards(validationReport, validationEl);
@@ -2543,7 +3061,6 @@ function renderCompare() {
   var excludedEl = document.getElementById('excludedSummary');
   if (!result) {
     document.getElementById('totalsSummary').innerHTML = '';
-    document.getElementById('secondaryTotals').innerHTML = '';
     document.getElementById('narrative').innerHTML = '';
     document.getElementById('rateReport').innerHTML = '';
     document.getElementById('gpvDetailReport').innerHTML = '';
@@ -2554,13 +3071,13 @@ function renderCompare() {
 
   var report = renderRateReport();
   renderTotalsSummary(report.totals);
-  renderSecondaryTotals();
   renderNarrative(report.totals, report.gpvReport, report.validationReport);
 
   excludedEl.innerHTML =
     '<div class="card">' +
     'Excluded — Special Event: ' + fmtNumber(result.excluded.special_event.count) + ' visits, ' + fmtMoney(result.excluded.special_event.actualTotal) + '<br>' +
     'Excluded — Over cutoff: ' + fmtNumber(result.excluded.over_cutoff.count) + ' visits, ' + fmtMoney(result.excluded.over_cutoff.actualTotal) + '<br>' +
+    (result.excluded.off_pattern.count ? 'Excluded — Scan-to-pay one-offs (duration not on a 15-min step): ' + fmtNumber(result.excluded.off_pattern.count) + ' visits, ' + fmtMoney(result.excluded.off_pattern.actualTotal) + '<br>' : '') +
     'Excluded — No matching rate card: ' + fmtNumber(result.excluded.no_matching_rate_card.count) + ' visits, ' + fmtMoney(result.excluded.no_matching_rate_card.actualTotal) + '<br>' +
     'Excluded — Invalid/missing timestamp: ' + fmtNumber(result.excluded.invalid_timestamp.count) + ' visits, ' + fmtMoney(result.excluded.invalid_timestamp.actualTotal) + '<br>' +
     'Excluded — Unsupported coverage type (not Transient/Fully-Covered Validation): ' + fmtNumber(result.excluded.unsupported_coverage_type.count) + ' visits, ' + fmtMoney(result.excluded.unsupported_coverage_type.actualTotal) +
@@ -2569,6 +3086,13 @@ function renderCompare() {
 
 document.getElementById('includeFullValidations').addEventListener('change', function(e){
   state.includeFullValidations = e.target.checked;
+  var report = renderRateReport();
+  renderTotalsSummary(report.totals);
+  renderNarrative(report.totals, report.gpvReport, report.validationReport);
+});
+
+document.getElementById('includeEarlyBird').addEventListener('change', function(e){
+  state.includeEarlyBird = e.target.checked;
   var report = renderRateReport();
   renderTotalsSummary(report.totals);
   renderNarrative(report.totals, report.gpvReport, report.validationReport);
@@ -2652,7 +3176,11 @@ window.__engineTestCases.push(function(t){
   var varianceCells = varianceRow.querySelectorAll('td');
   var varianceText = Array.prototype.slice.call(varianceCells).slice(3).map(function(c){ return c.textContent; }).join(' ');
   t.assertEqual(varianceText.indexOf('+$2.00') > -1, true, 'renderRateReport: Variance table shows the per-day $ uplift (12 actual - 10 static = +$2.00)');
-  t.assertEqual(varianceText.indexOf('20.0%') > -1, true, 'renderRateReport: Variance table shows the per-day uplift % alongside the $ amount');
+  var pctRow = varianceTable.querySelectorAll('tbody tr')[1];
+  var pctCells = pctRow.querySelectorAll('td');
+  t.assertEqual(pctCells[0].textContent + pctCells[1].textContent + pctCells[2].textContent, '', 'renderRateReport: Variance % row is blank under Time Window/Band/Rate');
+  t.assertEqual(pctRow.textContent.indexOf('+20.0%') > -1, true, 'renderRateReport: Variance % row shows the per-day uplift % under the same day column');
+  t.assertEqual(varianceText.indexOf('%'), -1, 'renderRateReport: Variance $ row no longer carries the %');
 
   t.assertEqual(summaryCard.textContent.indexOf('Summary') > -1, true, 'renderRateReport: the Summary card is rendered on the Summary tab');
   t.assertEqual(summaryCard.textContent.indexOf('Total') > -1, true, 'renderRateReport: Summary card includes a grand Total row');
@@ -2672,18 +3200,58 @@ window.__engineTestCases.push(function(t){
   var narrative = document.getElementById('narrative');
   t.assertEqual(narrative.textContent.indexOf('$24.00') > -1, true, 'renderNarrative: paragraph mentions the AI total');
   t.assertEqual(narrative.textContent.indexOf('$20.00') > -1, true, 'renderNarrative: paragraph mentions the traditional total');
-  t.assertEqual(narrative.querySelectorAll('li').length, 1, 'renderNarrative: one bullet per GPV Pool section (no Validation Pool bullet since there is no validation data)');
-  t.assertEqual(narrative.textContent.indexOf('Day') > -1, true, 'renderNarrative: bullet names the section');
+  t.assertEqual(narrative.querySelectorAll('li').length, 0, 'renderNarrative: no bullets — grouped narrative paragraphs instead');
+  t.assertEqual(narrative.textContent.indexOf('Weekday daytime (Mon–Fri): 2 visits') > -1 && narrative.textContent.indexOf('Weekend') === -1, true, 'renderNarrative: Wed visits land in the weekday-daytime group, empty groups omitted');
 
-  // Second bubble row: straight sums from the AI data by coverage type,
-  // independent of the GPV Pool's gpv>0 filter — the gpv=0 visit still
-  // counts here since it's a real Transient transaction with a real Price Amt.
-  var secondaryCards = document.querySelectorAll('#secondaryTotals .statCard');
-  t.assertEqual(secondaryCards.length, 4, 'renderSecondaryTotals: 4 bubbles (Total Transient, Total Full Validated, combined total, hold-for-later)');
-  t.assertEqual(secondaryCards[0].textContent.indexOf('$36.00') > -1, true, 'renderSecondaryTotals: Total Transient sums all 3 Transient visits\' actual price ($12 x 3), including the gpv=0 one');
-  t.assertEqual(secondaryCards[1].textContent.indexOf('$0.00') > -1, true, 'renderSecondaryTotals: Total Full Validated is $0 when there are no Fully Covered validation visits');
-  t.assertEqual(secondaryCards[2].textContent.indexOf('$36.00') > -1, true, 'renderSecondaryTotals: third bubble is Transient + Full Validated combined');
-  t.assertEqual(secondaryCards[3].textContent.indexOf('Hold for later') > -1, true, 'renderSecondaryTotals: fourth bubble is an explicit placeholder, cleared for now');
+  // Percent bubble is the headline number, outlined in the brand color.
+  t.assertEqual(document.querySelectorAll('#totalsSummary .statCard.statHighlight').length, 1, 'renderTotalsSummary: only the Percent bubble carries the brand-outline highlight');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  // "Include Early Bird" toggle: visible only when Early Bird is configured,
+  // and unchecking it should drop Early Bird visits from both the Summary
+  // bubbles/Full Data GPV section AND the Validation Pool, the same way
+  // "Include Full Validations" already works across both tabs.
+  state.rateCards = [{ id:'day', name:'Day', days:[true,true,true,true,true,true,true], startMin:0, endMin:1439,
+    bands:[{rate:10,upToMin:1440}] }];
+  state.earlyBird = { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 };
+  state.includeEarlyBird = true;
+  state.cutoffHours = 24;
+  renderRateCards();
+  renderEarlyBird();
+
+  t.assertEqual(document.getElementById('includeEarlyBirdLabel').style.display, 'none', 'Include Early Bird toggle: hidden while Early Bird is disabled');
+
+  document.getElementById('ebEnabled').checked = true;
+  document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
+  state.earlyBird.days = [true,true,true,true,true,true,true];
+  state.earlyBird.entryStartMin = 360; // 6:00 AM
+  state.earlyBird.entryEndMin = 480;   // 8:00 AM
+  state.earlyBird.exitCondition = 'after';
+  state.earlyBird.exitMin = 0;
+  state.earlyBird.price = 3;
+  renderEarlyBird();
+  t.assertEqual(document.getElementById('includeEarlyBirdLabel').style.display, 'flex', 'Include Early Bird toggle: shown once Early Bird is enabled');
+  t.assertEqual(document.getElementById('includeEarlyBird').checked, true, 'Include Early Bird toggle: defaults to checked (included)');
+
+  // 1 Early Bird visit (7am, $3) + 1 regular visit (10am, $10), both Monday.
+  var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
+  var ebRow = "1\t7/6/2026\t7:00:00 AM\t7/6/2026\t7:30:00 AM\tFalse\t$3.00\t\t$3.00\tTransient (No Coverage)";
+  var dayRow = "2\t7/6/2026\t10:00:00 AM\t7/6/2026\t11:30:00 AM\tFalse\t$10.00\t\t$10.00\tTransient (No Coverage)";
+  applyVisitFileBuffer(t.utf16leEncode(header + ebRow + "\n" + dayRow), 'eb-toggle-test.csv');
+
+  t.assertEqual(document.getElementById('gpvDetailReport').textContent.indexOf('Early Bird') > -1, true, 'Include Early Bird (checked): Early Bird section appears on Full Data');
+  var statCardsOn = document.querySelectorAll('#totalsSummary .statCard');
+  t.assertEqual(statCardsOn[1].textContent.indexOf('$13.00') > -1, true, 'Include Early Bird (checked): AI Revenue bubble includes both visits ($3 + $10)');
+
+  document.getElementById('includeEarlyBird').checked = false;
+  document.getElementById('includeEarlyBird').dispatchEvent(new Event('change', {bubbles:true}));
+
+  t.assertEqual(document.getElementById('gpvDetailReport').textContent.indexOf('Early Bird') > -1, false, 'Include Early Bird (unchecked): Early Bird section disappears from Full Data');
+  var statCardsOff = document.querySelectorAll('#totalsSummary .statCard');
+  t.assertEqual(statCardsOff[1].textContent.indexOf('$10.00') > -1, true, 'Include Early Bird (unchecked): AI Revenue bubble drops the Early Bird visit, leaving only the $10 regular visit');
 });
 </script>
 
@@ -2692,8 +3260,8 @@ window.__engineTestCases.push(function(t){
   // Page/tab restructuring: Setup, Summary, Full Data — no more Discover tab,
   // no more duplicate Early Bird, no more Include Partial Validations toggle.
   var navButtons = document.querySelectorAll('#tabNav button');
-  t.assertEqual(navButtons.length, 3, 'nav: exactly 3 tabs (Setup, Summary, Full Data)');
-  t.assertEqual(Array.prototype.map.call(navButtons, function(b){ return b.dataset.tab; }), ['setup', 'summary', 'fullData'], 'nav: tab order is Setup, Summary, Full Data');
+  t.assertEqual(navButtons.length, 4, 'nav: exactly 4 tabs (Setup, Summary, Full Data, Year-over-Year)');
+  t.assertEqual(Array.prototype.map.call(navButtons, function(b){ return b.dataset.tab; }), ['setup', 'summary', 'fullData', 'yoy'], 'nav: tab order is Setup, Summary, Full Data, Volume Compare');
   t.assertEqual(navButtons[0].classList.contains('active'), true, 'nav: Setup is the default active tab');
   t.assertEqual(document.getElementById('discoverPage'), null, 'restructure: the old standalone Discover page is gone');
 
@@ -2703,7 +3271,6 @@ window.__engineTestCases.push(function(t){
 
   t.assertEqual(document.getElementById('narrative'), document.querySelector('#summaryPage #narrative'), 'restructure: the narrative lives on the Summary page');
   t.assertEqual(document.getElementById('totalsSummary'), document.querySelector('#summaryPage #totalsSummary'), 'restructure: the summary bubbles live on the Summary page');
-  t.assertEqual(document.getElementById('secondaryTotals'), document.querySelector('#summaryPage #secondaryTotals'), 'restructure: the second bubble row lives on the Summary page');
   t.assertEqual(document.getElementById('rateReport'), document.querySelector('#summaryPage #rateReport'), 'restructure: only the GPV Pool\'s grand-totals Summary card lives on the Summary page, below the bubbles and narrative');
   t.assertEqual(document.querySelector('#fullDataPage #rateReport'), null, 'restructure: the GPV Pool Summary card is NOT on the Full Data page');
 
@@ -2737,21 +3304,41 @@ window.__engineTestCases.push(function(t){
 
 <script>
 window.__engineTestCases.push(function(t){
+  t.assertEqual(RateEngine.isOffPattern(600), false, 'scanToPay: 600 min is on the 15-minute grid');
+  t.assertEqual(RateEngine.isOffPattern(589), true, 'scanToPay: 589 min is a one-off');
+
+  var base = { 'Visit Start Date': '7/1/2026', 'Visit Start At': '10:00:00 AM', 'Visit Exit  Event Date': '7/1/2026',
+    'Is Special Event Rate': 'False', 'Price Amt': '$15.16', 'Visit Coverage Type': 'Transient (No Coverage)' };
+  var cards = [{ id: 'a', name: 'All', days: [true,true,true,true,true,true,true], startMin: 0, endMin: 1439, bands: [{ rate: 15.16, startingMin: 0, upToMin: 600 }] }];
+  var noEb = { enabled: false, days: [], entryStartMin: 0, entryEndMin: 0, exitCondition: 'after', exitMin: 0, price: 0 };
+  var onGrid = Object.assign({}, base, { 'Visit Exit  Event At': '08:00:00 PM' }); // 600 min
+  var oneOff = Object.assign({}, base, { 'Visit Exit  Event At': '07:49:00 PM' }); // 589 min
+  t.assertEqual(RateEngine.processVisit(oneOff, cards, noEb, 24, true).excluded, 'off_pattern', 'scanToPay: off-grid duration is bucketed as off_pattern');
+  t.assertEqual(RateEngine.processVisit(oneOff, cards, noEb, 24, false).excluded, null, 'scanToPay off: off-grid duration is priced normally');
+  var p = RateEngine.processVisit(onGrid, cards, noEb, 24, true);
+  t.assertEqual([p.excluded, p.staticPrice], [null, 15.16], 'scanToPay: a 600-min purchase prices against the 0-600 band');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
   t.assertEqual(document.getElementById('cutoffHours').value, '24', 'cutoff: input defaults to 24');
 
   var cutoffInput = document.getElementById('cutoffHours');
   cutoffInput.value = '12';
-  cutoffInput.dispatchEvent(new Event('input', {bubbles:true}));
-  t.assertEqual(state.cutoffHours, 12, 'cutoff: editing the input updates state.cutoffHours');
+  t.assertEqual(state.cutoffHours, 24, 'cutoff: editing the input alone does not apply');
+  document.getElementById('cutoffRefreshBtn').click();
+  t.assertEqual(state.cutoffHours, 12, 'cutoff: Refresh applies the input to state.cutoffHours');
 
   // Regression: clearing the field (e.g. user backspaces it) must not zero out
   // the cutoff, which would silently exclude every visit as over-cutoff.
   cutoffInput.value = '';
-  cutoffInput.dispatchEvent(new Event('input', {bubbles:true}));
+  document.getElementById('cutoffRefreshBtn').click();
   t.assertEqual(state.cutoffHours, 12, 'cutoff: clearing the input keeps the last valid value instead of becoming 0');
+  t.assertEqual(cutoffInput.value, '12', 'cutoff: invalid input is restored to the last valid value');
 
   cutoffInput.value = '24';
-  cutoffInput.dispatchEvent(new Event('input', {bubbles:true}));
+  document.getElementById('cutoffRefreshBtn').click();
 
   var header = "Sort by\tTransaction Id\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
   var dataRow = "1\t290956872\t7/1/2026\t10:00:00 AM\t7/1/2026\t11:30:00 AM\tFalse\t$13.78\t\t$13.78\tTransient (No Coverage)";
@@ -2806,6 +3393,53 @@ window.__engineTestCases.push(function(t){
 
 <script>
 window.__engineTestCases.push(function(t){
+  // Reproduces the "wrong-mapped rates" bug: a historical file dropped
+  // before Early Bird is configured folds Early-Bird-priced visits into the
+  // regular card's duration ladder as a bogus extra band. Clicking the
+  // Early Bird card's "Re-run Inference" button after configuring Early
+  // Bird should re-derive the ladder and correctly exclude those visits.
+  state.rateCards = [{ id: 'infday', name: 'Day', days: [false,true,true,true,true,true,false], startMin: 240, endMin: 960, bands: [{ rate: null, startingMin: 15, upToMin: 60 }] }];
+  state.earlyBird = { enabled: false, days: [false,false,false,false,false,false,false], entryStartMin: 0, entryEndMin: 0, exitCondition: 'after', exitMin: 0, price: 0 };
+  state.discoverSetup = { allDay: true, dayStartMin: 360, eveningStartMin: 1080 };
+  renderRateCards();
+  renderEarlyBird();
+
+  var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
+  var lines = [];
+  for (var i = 0; i < 6; i++) {
+    var day = i % 2 === 0 ? '7/6/2026' : '7/7/2026';
+    // Regular visits: 10am-11:30am (90 min), $5 — should stay in the Day card's ladder.
+    lines.push((i + 1) + '\t' + day + '\t10:00:00 AM\t' + day + '\t11:30:00 AM\tFalse\t$5.00\t\t$5.00\tTransient (No Coverage)');
+    // Early-Bird-shaped visits: 7am-7:30am (30 min), $3 — Early Bird isn't
+    // configured yet, so today they get misread as a real 30-min duration band.
+    lines.push((i + 7) + '\t' + day + '\t7:00:00 AM\t' + day + '\t7:30:00 AM\tFalse\t$3.00\t\t$3.00\tTransient (No Coverage)');
+  }
+  applyHistoricalFileBuffer(t.utf16leEncode(header + lines.join("\n")), 'eb-contaminated.csv');
+
+  t.assertEqual(state.rateCards[0].bands.length, 2, 'runInfer: without Early Bird configured, the 7am visits fragment the ladder into a bogus extra band');
+  t.assertEqual(state.rateCards[0].bands[0].rate, 3, 'runInfer: the bogus band carries the Early-Bird-shaped price');
+
+  // Now configure Early Bird to match those 7am-7:30am visits.
+  document.getElementById('ebEnabled').checked = true;
+  document.getElementById('ebEnabled').dispatchEvent(new Event('change', {bubbles:true}));
+  state.earlyBird.days = [true,true,true,true,true,true,true];
+  state.earlyBird.entryStartMin = 360; // 6:00 AM
+  state.earlyBird.entryEndMin = 480;   // 8:00 AM
+  state.earlyBird.exitCondition = 'after';
+  state.earlyBird.exitMin = 0;
+  renderEarlyBird();
+
+  document.getElementById('ebRerunInferBtn').click();
+
+  t.assertEqual(state.rateCards[0].bands.length, 1, 'ebRerunInferBtn: re-running inference after configuring Early Bird collapses the ladder back to one clean band');
+  t.assertEqual(state.rateCards[0].bands[0].rate, 5, 'ebRerunInferBtn: the surviving band is the real (non-Early-Bird) rate');
+  t.assertEqual(state.earlyBird.price, 3, 'ebRerunInferBtn: Early Bird price is picked up from the re-run inference');
+  t.assertEqual(document.getElementById('inferStatus').textContent.indexOf('Early Bird price ($3.00 from 6 visits)') > -1, true, 'ebRerunInferBtn: status line reports the Early Bird visits pulled out of the ladder');
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
   // Blank Setup tab (the untouched single starter card) + a historical file
   // that spans two distinct day-groups: everything should get built from
   // scratch, and the blank starter card should not survive alongside the
@@ -2855,6 +3489,114 @@ window.__engineTestCases.push(function(t){
 
   document.getElementById('discoverAllDay').checked = true;
   document.getElementById('discoverAllDay').dispatchEvent(new Event('change', {bubbles:true}));
+});
+</script>
+
+<script>
+window.__engineTestCases.push(function(t){
+  state.rateCards = [{ id:'day', name:'Day', days:[true,true,true,true,true,true,true], startMin:0, endMin:1439,
+    bands:[{rate:10,upToMin:1440}] }];
+  state.earlyBird = { enabled:false, days:[false,false,false,false,false,false,false], entryStartMin:0, entryEndMin:0, exitCondition:'after', exitMin:0, price:0 };
+  state.yoyRows = []; runYoY();
+  t.assertEqual(document.getElementById('yoyTabBtn').disabled, true, 'YoY: tab disabled with no YoY file');
+
+  var header = "Sort by\tVisit Start Date\tVisit Start At\tVisit Exit  Event Date\tVisit Exit  Event At\tIs Special Event Rate\tPrice Amt\tValidation Amt\tGPV Amt\tVisit Coverage Type\n";
+  function row(n, d, p){ return n + "\t" + d + "\t10:00:00 AM\t" + d + "\t11:30:00 AM\tFalse\t$" + p + "\t\t$" + p + "\tTransient (No Coverage)"; }
+  applyVisitFileBuffer(t.utf16leEncode(header + row(1,'7/1/2026',12) + "\n" + row(2,'7/1/2026',12)), 'cy.csv'); // Wed x2 @ $12
+  applyYoYFileBuffer(t.utf16leEncode(header + row(1,'7/2/2025',8)), 'py.csv'); // Wed x1 @ $8
+  t.assertEqual(document.getElementById('yoyTabBtn').disabled, false, 'YoY: tab enabled once a YoY file is loaded');
+  var txt = document.getElementById('yoyReport').textContent;
+  t.assertEqual(txt.indexOf('Volume (visits)') > -1 && txt.indexOf('Average Ticket Price') > -1, true, 'YoY: volume and avg-ticket tables render');
+  t.assertEqual(txt.indexOf('+1 (+100.0%)') > -1, true, 'YoY: volume variance 2 vs 1 = +1 (+100%)');
+  t.assertEqual(txt.indexOf('1 days compared') > -1 && txt.indexOf('Wed 7/2/2025') > -1, true, 'Volume Compare: 1-day window aligns Wed 7/1/2026 to Wed 7/2/2025');
+  var w = RateEngine.pickCompareWindows(RateEngine.dayNum(new Date(2026,0,1)), RateEngine.dayNum(new Date(2026,0,21)), RateEngine.dayNum(new Date(2024,9,1)), RateEngine.dayNum(new Date(2025,11,31)));
+  var ps = RateEngine.dayNumToDate(w.priorStart);
+  t.assertEqual(w.days === 21 && ps.getDay() === 4 && Math.abs(w.priorStart - RateEngine.dayNum(new Date(2025,0,1))) <= 3, true, 'Volume Compare: Thu 1/1/26 start maps to a Thursday within 3 days of 1/1/25, same length');
+  t.assertEqual(txt.indexOf('+$4.00 (+50.0%)') > -1, true, 'YoY: avg ticket $8 -> $12 = +$4.00 (+50%)');
+  state.yoyRows = []; runYoY();
+});
+</script>
+
+<script>
+// ---- Print / PDF of the active tab ----
+var pdfOrient = 'landscape';
+var PDF_DEFAULT_SIZE = { setupPage: 'letter', summaryPage: 'letter', fullDataPage: 'letter', yoyPage: 'letter' };
+function markPdfModal(pageId) {
+  var def = PDF_DEFAULT_SIZE[pageId] || 'letter';
+  document.querySelectorAll('#pdfModal [data-size]').forEach(function(b){
+    if (b.dataset.size === 'cancel') return;
+    var on = b.dataset.size === def;
+    b.className = 'btn' + (on ? '' : ' ghost');
+    b.textContent = b.dataset.base + (on ? ' (default)' : '');
+  });
+  document.querySelectorAll('#pdfModal [data-orient]').forEach(function(b){
+    b.className = 'btn' + (b.dataset.orient === pdfOrient ? '' : ' ghost');
+  });
+}
+function exportPDF(pageEl, size, orient) {
+  var din = { letter: [11, 8.5], legal: [14, 8.5], tabloid: [17, 11] }[size];   // landscape inches [w,h]
+  if (orient === 'portrait') din = [din[1], din[0]];
+  var tables = [].slice.call(pageEl.querySelectorAll('table'));
+  var contentW = Math.max.apply(null, [pageEl.scrollWidth, 1].concat(tables.map(function(t){ return t.scrollWidth; })));
+  // Clone the page and turn live selects/inputs into plain text so the values print.
+  var clone = pageEl.cloneNode(true);
+  var liveSel = [].slice.call(pageEl.querySelectorAll('select'));
+  clone.querySelectorAll('select').forEach(function(cs, i){
+    var L = liveSel[i], span = document.createElement('span');
+    span.textContent = (L && L.selectedIndex >= 0) ? L.options[L.selectedIndex].textContent : '';
+    span.style.fontWeight = '700';
+    cs.replaceWith(span);
+  });
+  var liveInp = [].slice.call(pageEl.querySelectorAll('input'));
+  clone.querySelectorAll('input').forEach(function(ci, i){
+    var L = liveInp[i];
+    if (!L || L.type === 'checkbox' || L.type === 'file' || L.type === 'radio') { ci.remove(); return; }
+    var span = document.createElement('span');
+    span.textContent = L.value;
+    span.style.fontWeight = '700';
+    ci.replaceWith(span);
+  });
+  clone.querySelectorAll('button,.toggle').forEach(function(e){ e.remove(); });
+  var css = [].slice.call(document.querySelectorAll('style')).map(function(s){ return s.textContent; }).join('\n');
+  var title = (pageEl.querySelector('h2') || {}).textContent || 'Rate Compare';
+  var w = window.open('', '_blank', 'width=1100,height=800');
+  if (!w) { alert('Please allow pop-ups for this page to print.'); return; }
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + escapeHtml(title) + '</title><style>' + css + '</style>' +
+    '<style>@page{size:' + din[0] + 'in ' + din[1] + 'in;margin:8mm}html,body{margin:0;background:#fff}' +
+    '*{print-color-adjust:exact;-webkit-print-color-adjust:exact}' +
+    '#printWrap{width:' + contentW + 'px}' +
+    '#printWrap .page{display:block!important;max-width:none!important;padding:0!important}' +
+    'tr,.statRow,.statCard{break-inside:avoid}.card{box-shadow:none}</style></head>' +
+    '<body><div id="printWrap">' + clone.outerHTML + '</div></body></html>');
+  w.document.close(); w.focus();
+  // Fit to page WIDTH only; tall reports then flow onto more pages instead of shrinking to one unreadable page.
+  setTimeout(function(){ try {
+    var pageW = din[0] * 96 - 24;
+    var wrap = w.document.getElementById('printWrap');
+    var cw = wrap.scrollWidth || contentW;
+    wrap.style.zoom = Math.min(pageW / cw, 1);
+    setTimeout(function(){ w.print(); }, 150);
+  } catch (e) {} }, 350);
+}
+document.getElementById('printBtn').addEventListener('click', function(){
+  var page = document.querySelector('.page.active');
+  if (!page) return;
+  pdfOrient = 'landscape';
+  var modal = document.getElementById('pdfModal');
+  modal.dataset.pageId = page.id;
+  markPdfModal(page.id);
+  modal.style.display = 'flex';
+});
+document.querySelectorAll('#pdfModal [data-orient]').forEach(function(b){
+  b.addEventListener('click', function(){ pdfOrient = b.dataset.orient; markPdfModal(document.getElementById('pdfModal').dataset.pageId); });
+});
+document.querySelectorAll('#pdfModal [data-size]').forEach(function(b){
+  b.addEventListener('click', function(){
+    var modal = document.getElementById('pdfModal');
+    modal.style.display = 'none';
+    var page = document.getElementById(modal.dataset.pageId);
+    if (b.dataset.size !== 'cancel' && page) exportPDF(page, b.dataset.size, pdfOrient);
+  });
 });
 </script>
 
